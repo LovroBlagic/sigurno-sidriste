@@ -2,6 +2,8 @@
 
 Gdje sidriti na hrvatskom Jadranu. Upiši mjesto (npr. *Pakleni otoci*), pritisni **Pronađi sidrište u blizini** i dobiješ do 5 najboljih mjesta s dubinom, vrstom dna, zaklonom i duljinom lanca. Ili dodirni more na karti za provjeru jedne točke.
 
+**Uživo za testiranje:** https://sigurno-sidriste.vercel.app · MCP: `https://sigurno-sidriste.vercel.app/mcp`
+
 Isto znanje dostupno je i AI asistentima preko **MCP servera**, pa nautičar može samo pitati:
 > *"Gdje mogu sidriti večeras kod Visa, puše jugo?"*
 
@@ -47,12 +49,17 @@ Dva alata: `pronadi_sidriste` (mjesto ili lat/lon, polumjer) i `provjeri_tocku` 
 }
 ```
 
-**Udaljeno (ChatGPT, Claude.ai konektori)** - kad se server objavi na javni URL, dodaj `https://<domena>/mcp` kao prilagođeni konektor.
+**Udaljeno (ChatGPT, Claude.ai konektori)** - dodaj `https://sigurno-sidriste.vercel.app/mcp` kao prilagođeni konektor.
+
+## Objava
+
+Vercel projekt `sigurno-sidriste` povezan je s GitHub repozitorijem: svaki push na `main` automatski se objavljuje. Statične datoteke su u `web/`, a `api/*.js` su Vercel funkcije (`/mcp` se preusmjerava na `api/mcp.js`).
 
 ## Struktura
 
 - `web/core.js` - sva logika (ocjena, pretraga, zaklon, geokodiranje), dijele je web i MCP
 - `web/index.html`, `web/app.js`, `web/style.css` - sučelje (Leaflet)
-- `server/index.js` - jedan Node server: web + `/api/*` + `/mcp`; ograničava i pamti pozive prema EMODnetu
+- `server/handlers.js` - API i MCP rukovatelji (ograničavaju i pamte pozive prema EMODnetu)
+- `server/index.js` - lokalni server: web + `/api/*` + `/mcp` · `api/*.js` - iste rute kao Vercel funkcije
 - `mcp/tools.js` - definicije MCP alata · `mcp/stdio.js` - stdio ulaz
 - `scripts/download_data.py`, `scripts/build_layers.py` - priprema podataka (22 MB → ~1,3 MB)
