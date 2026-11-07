@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sigurno sidrište</title>
+  <meta name="description" content="Gdje sidriti na hrvatskom Jadranu: dno koje drži, livade posidonije, dubina, zaklon i vjetar za svaku točku.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "@turf/turf": "https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/+esm" } }
+  </script>
+</head>
+<body>
+  <div id="map" aria-label="Karta hrvatskog Jadrana"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M16 9v19M10 14h12M5 19c1 6 6 9 11 9s10-3 11-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <h1>Sigurno sidrište</h1>
+    </div>
+    <form id="search" class="search" role="search">
+      <input id="q" type="search" placeholder="Gdje ploviš? npr. Hvar, Vis, Telašćica" autocomplete="off" aria-label="Mjesto ili uvala">
+      <button type="submit" aria-label="Traži">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </form>
+    <button id="locate" class="btn round" type="button" title="Moja lokacija" aria-label="Moja lokacija">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+  </header>
+
+  <aside id="panel" class="panel" aria-live="polite">
+    <div class="grip" aria-hidden="true"></div>
+    <div id="panel-body"></div>
+  </aside>
+
+  <template id="home">
+    <h2>Gdje danas sidriti?</h2>
+    <p class="lead">Upiši mjesto ili pomakni kartu, pa pritisni gumb. Tražimo dno koje drži, bez posidonije, na dobroj dubini i u zaklonu od vjetra koji dolazi.</p>
+    <button class="btn primary" type="button" data-action="find">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M16 9v19M10 14h12M5 19c1 6 6 9 11 9s10-3 11-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      Pronađi sidrište u blizini
+    </button>
+    <p class="hint">ili dodirni more na karti za provjeru jedne točke</p>
+    <details class="more">
+      <summary>Legenda i slojevi</summary>
+      <ul class="legend" id="legend"></ul>
+      <fieldset class="layers">
+        <label><input type="checkbox" data-layer="substrate" checked> Vrsta dna</label>
+        <label><input type="checkbox" data-layer="seagrass" checked> Morska trava i posidonija</label>
+        <label><input type="checkbox" data-layer="natura"> Natura 2000 (ptice)</label>
+        <label><input type="checkbox" data-layer="seamarks" checked> Pomorske oznake (OpenSeaMap)</label>
+        <label><input type="checkbox" data-layer="depth"> Dubina (sjenčanje)</label>
+      </fieldset>
+    </details>
+  </template>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "safe-anchor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sigurno sidrište - gdje sidriti na hrvatskom Jadranu (web + MCP server)",
+  "scripts": {
+    "data": "python3 scripts/download_data.py && python3 scripts/build_layers.py",
+    "start": "node server/index.js",
+    "mcp": "node mcp/stdio.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@turf/turf": "7.1.0",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

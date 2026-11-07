@@ -1,0 +1,8 @@
+node_modules/
+.vercel/
+.env*
+.DS_Store
+# sirovi podaci (22 MB) - ponovno: npm run data
+/data/
+# međukoraci videa
+video/build/
