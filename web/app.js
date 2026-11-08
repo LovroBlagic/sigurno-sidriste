@@ -116,6 +116,7 @@ L.Control.SatToggle = L.Control.extend({
 });
 new L.Control.SatToggle().addTo(map);
 
+const DEFAULT_LAYERS = { substrate: false, seagrass: true, protected: true, navmarks: true, natura: false, seamarks: true, sightings: true, sdb: true, vessels: false };
 state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
   maxZoom: 18, zIndex: 3, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
 });
@@ -159,8 +160,33 @@ fetch("tiles/sdb/index.json", { cache: "no-cache" }).then((r) => r.json()).then(
   syncLayers();
 }).catch(() => {});
 
+// Brodovi uživo: VesselFinder nudi besplatno samo svoj ugradivi prozor (AIS), ne sloj za Leaflet,
+// pa se prikazuje kao prozor nad kartom koji prati središte i zoom naše karte.
+const Vessels = L.Layer.extend({
+  onAdd(m) {
+    this._box = L.DomUtil.create("div", "vessels-box", m.getContainer());
+    this._box.innerHTML = `<div class="vessels-head"><b>Brodovi uživo</b><small>AIS · VesselFinder</small><button type="button" aria-label="Zatvori">×</button></div><iframe title="Brodovi uživo (VesselFinder)" loading="lazy"></iframe>`;
+    L.DomEvent.disableClickPropagation(this._box);
+    L.DomEvent.disableScrollPropagation(this._box);
+    this._box.querySelector("button").onclick = () => {
+      state.layerPrefs = { ...(state.layerPrefs || DEFAULT_LAYERS), vessels: false };
+      document.querySelectorAll("[data-layer=vessels]").forEach((cb) => { cb.checked = false; });
+      syncLayers();
+    };
+    this._move = () => { clearTimeout(this._t); this._t = setTimeout(() => this._load(), 600); };
+    m.on("moveend", this._move);
+    this._load();
+  },
+  onRemove(m) { m.off("moveend", this._move); clearTimeout(this._t); this._box.remove(); },
+  _load() {
+    const c = this._map.getCenter(), z = Math.max(6, Math.min(14, this._map.getZoom() - 1));
+    this._box.querySelector("iframe").src = `brodovi.html?lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}&z=${z}`;
+  },
+});
+state.layers.vessels = new Vessels();
+
 function syncLayers() {
-  const want = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true, sightings: true };
+  const want = state.layerPrefs || DEFAULT_LAYERS;
   for (const [k, layer] of Object.entries(state.layers)) {
     if (want[k]) layer.addTo(map); else map.removeLayer(layer);
   }
@@ -173,7 +199,7 @@ function showHome() {
   body.querySelector("#legend").innerHTML = [3, 2, 1, 0].map((h) =>
     `<li><span class="sw" style="background:${HOLD[h].color}"></span>${["Stijene i kamenje", "Šljunak / krupno", "Mulj / muljeviti pijesak", "Pijesak"][h]}<small>${HOLD[h].word}</small></li>`).join("")
     + `<li><span class="sw grass"></span>Livada morske trave<small>zabranjeno</small></li>`;
-  const prefs = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true, sightings: true };
+  const prefs = state.layerPrefs || DEFAULT_LAYERS;
   body.querySelectorAll("[data-layer]").forEach((cb) => {
     cb.checked = !!prefs[cb.dataset.layer];
     cb.addEventListener("change", () => {
