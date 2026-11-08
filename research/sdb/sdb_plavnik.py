@@ -13,8 +13,8 @@ Downloads (cached in research/sdb/data/, not committed):
     (AWS sentinel-cogs bucket, no login).
   * EMODnet Bathymetry DTM 2024 depth grid (WCS) and the source of each 0-20 m cell (REST).
   * ICESat-2 ATL24 bathymetry photons via the public SlideRule Earth service (no login).
-Writes research/sdb/results.json, research/sdb/sdb_plavnik.png and the experimental web layer
-web/data/sdb_plavnik_plicak.{png,json}.
+Writes research/sdb/results.json and research/sdb/sdb_plavnik.png. The map layer for the whole
+coast is built by sdb_hr.py.
 """
 import json
 import os
@@ -48,8 +48,6 @@ N = 1000.0          # Stumpf constant (keeps both logs positive for reflectance 
 NIR_LAND = 0.02     # B08 reflectance above this = land / emergent rock
 MIN_WATER_FRAC = 0.9  # an EMODnet cell is used only if >=90 % of its 10 m pixels are water
 DEPTH_MAX = 20.0
-WEB_SHALLOW_M = 4.0   # web layer answers "shallower than 4 m?" (what the team asked for) ...
-WEB_MARGIN_M = 1.0    # ... by marking SDB < 4 + 1 m: SDB < 4 m alone misses ~22 % of real < 4 m spots
 MAP_MAX = 15.0        # the map stops here: only ~7 % of ICESat-2 calibration pixels are deeper than 10 m
 IS2_MIN_CONF = 0.9    # ATL24 photon confidence; lower values let many false 'bottom' returns in
 IS2_MIN_PHOTONS = 3   # photons needed in a 10 m pixel before its median depth is used
@@ -370,37 +368,6 @@ def plot(res, ratio, water, tr, crs, models, out):
     fig.savefig(out, dpi=120)
 
 
-def export_web_layer(res, ratio, tr, crs, models):
-    """Transparent PNG in Web Mercator (for Leaflet L.imageOverlay) marking where SDB < WEB_SHALLOW_M +
-    WEB_MARGIN_M, plus a JSON with its lat/lon bounds and the numbers shown in the app."""
-    from rasterio.warp import reproject, Resampling, calculate_default_transform
-    import matplotlib.pyplot as plt
-
-    m1, m0 = models["icesat2"]
-    thr = WEB_SHALLOW_M + WEB_MARGIN_M
-    shallow = (np.isfinite(ratio) & (ratio < models["r_deep"]) & (m1 * ratio + m0 < thr)).astype("uint8")
-    h, w = ratio.shape
-    dst_tr, dw, dh = calculate_default_transform(crs, "EPSG:3857", w, h, *rasterio.transform.array_bounds(h, w, tr))
-    dst = np.zeros((dh, dw), "uint8")
-    reproject(shallow, dst, src_transform=tr, src_crs=crs, dst_transform=dst_tr, dst_crs="EPSG:3857",
-              resampling=Resampling.nearest)
-    rgba = np.zeros((dh, dw, 4), "uint8")
-    rgba[dst == 1] = (230, 81, 0, 200)
-    web = HERE.parents[1] / "web" / "data"
-    plt.imsave(web / "sdb_plavnik_plicak.png", rgba)
-    (x0, x1), (y0, y1) = transform("EPSG:3857", "EPSG:4326",
-                                   [dst_tr.c, dst_tr.c + dst_tr.a * dw], [dst_tr.f + dst_tr.e * dh, dst_tr.f])
-    cv = res["icesat2"]["cv_by_track"]
-    p = models["is2_pts"]  # held-out ICESat-2 pixels: how many real < WEB_SHALLOW_M spots get marked
-    truly = p["depth"] < WEB_SHALLOW_M
-    catch = float(np.mean(p["oof"][truly] < thr))
-    marked = p["oof"] < thr
-    meta = dict(bounds=[[y0, x0], [y1, x1]], scene=res["scene"], shallow_below_m=WEB_SHALLOW_M, sdb_threshold_m=thr,
-                catch_rate=round(catch, 2), marked_truly_shallow=round(float(np.mean(truly[marked])), 2),
-                rmse_m=round(cv["rmse"], 1), v=int(time.time()), source="research/sdb/README.md")
-    (web / "sdb_plavnik_plicak.json").write_text(json.dumps(meta, indent=1) + "\n")
-
-
 def main(scenes):
     ref = emodnet_reference()
     allres = []
@@ -408,7 +375,6 @@ def main(scenes):
         res, ratio, water, tr, crs, models = run(scene, ref)
         if i == 0 and models:
             plot(res, ratio, water, tr, crs, models, HERE / "sdb_plavnik.png")
-            export_web_layer(res, ratio, tr, crs, models)
         res.pop("calib_points", None)
         allres.append(res)
         print(json.dumps(res, indent=1))

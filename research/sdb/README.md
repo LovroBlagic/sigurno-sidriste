@@ -4,8 +4,8 @@
 mjerenjima satelita ICESat-2 daje dobru točnost: RMSE oko 1.5 m na 0–15 m, a na 5–10 m oko 1 m.
 Ostaju opasne pogreške: oko 3 % piksela satelit procijeni najmanje 2 m dublje nego što jest,
 a nekoliko i preko 5 m, uglavnom na 0–5 m. U demo prezentaciji može poslužiti kao jasno označen
-eksperimentalni sloj „ovdje je plićak”, ne kao dubina. Aplikacija (`web/`, `server/`, `api/`)
-nije dirana.
+eksperimentalni sloj „ovdje je plićak”, ne kao dubina. Takav sloj za cijelu obalu izrađuje
+`sdb_hr.py` (odjeljak [Cijela obala](#cijela-obala-sloj-pliće-od-4-m)).
 
 ![SDB Plavnik](sdb_plavnik.png)
 
@@ -96,11 +96,11 @@ Usporedba po ćelijama, samo gdje ICESat-2 mjeri 0–20 m. Bias = EMODnet − IC
 Za aplikaciju je ovo važno. Uz samu obalu, gdje se sidri, EMODnet je ili EOMAP-ova satelitska
 procjena koja je u prosjeku 2 m preduboka, ili rub bez podataka.
 
-### Sloj na web karti
+### Prag za sloj „pliće od 4 m”
 
-`sdb_plavnik.py` izrađuje i `web/data/sdb_plavnik_plicak.{png,json}`. U aplikaciji je to prekidač
-„Pliće od 4 m sa satelita, samo Plavnik (eksperimentalno)”. Sloj odgovara na pitanje „je li ovdje
-pliće od 4 m?”, a označava sve gdje satelit procjenjuje manje od **5 m** (1 m rezerve).
+Sloj na karti odgovara na pitanje „je li ovdje pliće od 4 m?”. Uz prag od 4 m satelit promaši
+petinu stvarnih plićaka, pa se označava sve gdje SDB procjenjuje manje od **5 m** (1 m rezerve).
+Za cijelu obalu prag se bira po bloku (vidi niže).
 
 Provjera na ICESat-2 pikselima iz izdvojenih prolaza, snimka 2026-09-16:
 
@@ -109,6 +109,73 @@ Provjera na ICESat-2 pikselima iz izdvojenih prolaza, snimka 2026-09-16:
 | < 4 m | 78 % | 88 % |
 | **< 5 m (korišteno)** | **96 %** | **70 %** (ostalo je 4–6 m) |
 | < 6 m | 99 % | 56 % |
+
+## Cijela obala: sloj „pliće od 4 m”
+
+`sdb_hr.py` ponavlja istu metodu za cijeli hrvatski dio Jadrana i izrađuje web pločice
+`web/tiles/sdb/{z}/{x}/{y}.png` (z 8–13) s `index.json`. U aplikaciji je to prekidač
+„Pliće od 4 m sa satelita (eksperimentalno, dio obale)”. Rezultati po pločici i bloku su
+u `results_hr.json`.
+
+### Postupak
+
+1. **Područje:** 17 Sentinel-2 pločica (MGRS) preko hrvatskog gospodarskog pojasa
+   (Marine Regions EEZ, mrgid 5673; poligon uključuje i unutarnje vode).
+2. **Snimka po pločici:** od snimaka s < 5 % oblaka (05/2025–11/2026) uzima se ona s najmanjim
+   NIR-om nad otvorenim morem (najmanje glinta).
+3. **Omjer samo za obalno more:** do 3 km od kopna ili gdje EMODnet kaže pliće od 40 m.
+   Ostalo je isto kao za Plavnik: maska kopna, odbačen prvi piksel uz obalu, Stumpfov omjer, medijan 5×5.
+4. **ICESat-2 ATL24 po pločici** (SlideRule, 3×3 upita zbog ograničenja od 300 granula).
+   Lažna dna: fotoni gdje EMODnet kaže dublje od 40 m se odbacuju.
+5. **Kalibracija po blokovima od 15 km.** Jedan model za cijelu pločicu (110 km) miješa vrste dna
+   i prozirnost mora. Na pločici 33TVK jedan model ima r 0.39, a većina blokova od 15 km oko 0.9.
+   Veličina bloka odabrana je na 33TVK (prije usporedbe s EMODnetom, koja na 33TVK ništa ne mijenja):
+
+   | blok | prolazi provjeru | označeno |
+   |---|---|---|
+   | 20 km | 12 / 28 | 24.7 km² |
+   | **15 km** | **17 / 50** | **32.1 km²** |
+   | 10 km | 21 / 88 | 31.5 km² |
+
+6. **Provjera svakog bloka.** Blok se crta samo ako prođe sve uvjete:
+   - barem 80 ICESat-2 piksela iz barem 8 prolaza;
+   - CV po prolazima: r ≥ 0.7 i RMSE ≤ 2 m;
+   - barem 20 piksela stvarno plićih od 4 m;
+   - postoji prag SDB-a ≤ 6 m (korak 0.5 m) koji uhvati ≥ 95 % stvarnih plićaka < 4 m
+     (iz izdvojenih prolaza). Taj prag se koristi za crtanje;
+   - **usporedba s EMODnetom:** najviše 10 % označene površine smije biti gdje EMODnet kaže
+     dublje od 20 m. Piksel gdje EMODnet kaže > 20 m se nikad ne označava.
+7. **Web pločice:** zoom 13 (~14 m piksel) s `max` preuzorkovanjem, zatim 2×2 `max` prema manjim
+   zoomovima. Gdje se Sentinel-2 pločice preklapaju, piksel je označen ako ga označi bilo koja.
+
+Zašto usporedba s EMODnetom: provjera na ICESat-2 vidi samo mjesta gdje ICESat-2 nalazi dno,
+a to je uz obalu. Na pločici 33TVL dva bloka su prošla CV (RMSE 1.1–1.3 m), ali su označila
+28 km² mora dubokog 30–60 m zapadno od Krka (82–86 % označenog). Razlika od 16+ m je daleko
+veća od pogreške EMODneta uz obalu (~2 m), pa je to pouzdan znak lošeg modela.
+
+### Rezultat
+
+**28 od 325 blokova prolazi provjeru**, u 6 od 17 pločica. Označeno je oko 50 km² mora
+(zbroj po pločicama, preklapanja brojena dvaput). Web pločice zauzimaju 1.7 MB (430 datoteka).
+
+| | blokova |
+|---|---|
+| prošlo | 28 |
+| premalo ICESat-2 (< 80 piksela ili < 8 prolaza) | 242 |
+| loša kalibracija (r, RMSE, premalo plićaka ili nema praga) | 50 |
+| previše označenog gdje EMODnet kaže > 20 m | 5 |
+
+U blokovima koji su prošli CV RMSE je 0.8–2.0 m (medijan 1.3 m). Prag je 4.0–6.0 m
+(najčešće 4.5 m), uhvati 95–100 % stvarnih plićaka < 4 m, a od označenog je 30–90 %
+stvarno pliće od 4 m (ostalo je uglavnom 4–6 m).
+
+**Gdje sloj postoji:** zapadna i južna Istra (Umag, Rovinj, Medulin), Kvarner (Cres, Lošinj,
+Krk, Rab, Pag), sjeverna Dalmacija do Zadra, Pašmanskog kanala i Murtera, i jedan blok kod Visa.
+
+**Gdje ga nema:** srednja i južna Dalmacija (Split, Hvar, Korčula, Mljet, Dubrovnik). Tamo je
+obala strmija, a ICESat-2 nalazi dno na premalo mjesta: na pločici 33TXH (Hvar, Korčula, Pelješac)
+ima 2 664 piksela s dnom u 40 blokova, i nijedan blok ne prolazi. Na Plavniku blok prolazi
+(r 0.92, RMSE 1.4 m), ali je obala strma, pa je označeno malo.
 
 ## Ograničenja
 
@@ -149,6 +216,18 @@ Prvo pokretanje traje oko 10–15 minuta. Skida izreze snimaka (~25 MB) i ICESat
 Sve se sprema u `research/sdb/data/`, što git ignorira. Izlazi su `sdb_plavnik.png`
 (prva snimka) i `results.json` (obje snimke i usporedba s EMODnetom).
 
+Cijela obala (uz `scipy` i `shapely`):
+
+```bash
+.venv-sdb/bin/pip install scipy shapely
+.venv-sdb/bin/python research/sdb/sdb_hr.py --prefetch 33TUK 33TVK   # samo dohvat u cache (može paralelno)
+.venv-sdb/bin/python research/sdb/sdb_hr.py                          # kalibracija i web pločice
+```
+
+Dohvat ICESat-2 traje ~10 min po pločici, pa se `--prefetch` isplati pokrenuti u 3 procesa.
+Prvi put ukupno ~1 h. Cache je u `research/sdb/data/hr/`. Pokretanje s popisom pločica
+preračuna samo njih, a ostale uzme iz prethodnog `results_hr.json`.
+
 ## Izvori podataka i licence
 
 - **Sentinel-2 L2A:** sadrži izmijenjene podatke Copernicus Sentinel [2025, 2026]
@@ -160,6 +239,8 @@ Sve se sprema u `research/sdb/data/`, što git ignorira. Izlazi su `sdb_plavnik.
 - **EMODnet Bathymetry DTM 2024:** EMODnet Bathymetry Consortium, CC BY 4.0. Uključuje premjere
   Hrvatskog hidrografskog instituta (oznaka *Not for Navigation*), EOMAP SDB `croatia2003`
   i GEBCO 2024 kao popunu (GEBCO Compilation Group).
+- **Granica područja:** Flanders Marine Institute (VLIZ), *Maritime Boundaries Geodatabase*,
+  marineregions.org (WFS sloj `MarineRegions:eez`, mrgid 5673), CC BY 4.0.
 - **Metoda:**
   - Stumpf, Holderied & Sinclair (2003), *Limnology and Oceanography* 48(1):547–556;
   - kalibracija ICESat-2 + Sentinel-2 prema Thomas et al. (2021), *Geophysical Research Letters* 48(6), e2020GL092170.
