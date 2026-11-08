@@ -40,12 +40,19 @@ Z_MAX, Z_MIN = 14, 9
 BANDS = [2, 4, 6, 8, 10, 12, 15]
 COLORS = [(215, 48, 31), (252, 141, 89), (254, 224, 139), (217, 239, 139), (145, 207, 96), (65, 182, 196), (34, 94, 168)]
 ALPHA = 235
+FALLBACK = (2, 99)  # larger calibration areas in 15 km cells: 30 km blocks, then the whole Sentinel-2 tile
 
 
 # Scene per tile when the lowest-glint pick of sdb_hr.py is not the best for depth. On 33TVK the
 # 2025-09-18 scene reads most bay interiors (Krušija, Mužan) as optically deep (model 20-35 m where
 # EMODnet and the research map say 4-16 m); the 2026-09-16 scene resolves bottom to ~20 m there.
-SCENE = {"33TVK": "S2B_33TVK_20260916_0_L2A"}
+# The other entries were picked by sampling ~15 summer scenes (2022-2026, < 10 % cloud) only at ICESat-2 pixels
+# and keeping the one with the most depth area after the full gate (sdb_hr's autumn/winter picks had r 0.0-0.4).
+SCENE = {"33TVK": "S2B_33TVK_20260916_0_L2A",
+         "33TXH": "S2B_33TXH_20230708_0_L2A",    # Split, Brač, Hvar: r 0.74 (current pick -0.03)
+         "33TXJ": "S2B_33TXJ_20230909_0_L2A",    # Šibenik, Trogir: r 0.81 (0.06)
+         "33TWJ": "S2B_33TWJ_20230909_0_L2A",    # Zadar: 185 km2 instead of 66
+         "33TVL": "S2B_33TVL_20250812_1_L2A"}    # Rab, Senj: r 0.91 (0.41)
 
 
 def depth_map(tile):
@@ -59,20 +66,54 @@ def depth_map(tile):
     a = H.icesat2(tile, bounds_ll, sea.intersection(box(*bounds_ll)))
     res, _ = H.calibrate(tile, sc["id"], ratio, tr, crs, a)
     emod = np.load(H.DATA / f"{sc['id']}_emod.npy")
+    B = H.BLOCK_PX
+    models = {(b["row"], b["col"]): b for b in res.get("blocks", []) if "fail" not in b}
+    n_own = len(models)
+    # 15 km cells with too little ICESat-2 for their own model: borrow one fitted on a larger area
+    # (FALLBACK), with the same gate and EMODnet check. Cells whose own data gave a bad model keep none.
+    if "r_deep" in res:
+        starved = {(b["row"], b["col"]) for b in res["blocks"] if b.get("fail", "").startswith("too little ICESat-2")}
+        u, dep, trk, _ = H.is2_pixels(sc["id"], ratio, tr, crs, a)
+        rr, cc = np.divmod(u, ratio.shape[1])
+        rat = ratio.ravel()[u]
+        for k in FALLBACK:
+            K = k * B
+            for by in range(0, ratio.shape[0], K):
+                for bx in range(0, ratio.shape[1], K):
+                    todo = [c for c in starved - models.keys() if by <= c[0] * B < by + K and bx <= c[1] * B < bx + K]
+                    if not todo:
+                        continue
+                    sel = (rr >= by) & (rr < by + K) & (cc >= bx) & (cc < bx + K)
+                    b = H.calibrate_block(rat[sel], dep[sel], trk[sel])
+                    if "fail" in b:
+                        continue
+                    win = ratio[by:by + K, bx:bx + K]
+                    m = np.isfinite(win) & (win < res["r_deep"]) & (b["m1"] * win + b["m0"] < b["threshold_m"])
+                    if (m & (emod_on(emod, by, bx, win.shape) < -H.EMOD_DEEP_M)).sum() > H.GATE["max_emod_deep_share"] * max(m.sum(), 1):
+                        continue
+                    b["scale_km"] = round(min(K, max(ratio.shape)) / 100)
+                    H.log(tile, f"{len(todo)} cells from a {b['scale_km']} km model: r {b['r_pearson']:.2f}, "
+                                f"RMSE {b['cv']['rmse']:.1f} m, {b['n_pixels']} pixels / {b['n_tracks']} passes")
+                    for c in todo:
+                        models[c] = b
     depth = np.full(ratio.shape, np.nan, "f4")
-    for b in res.get("blocks", []):
-        if "fail" in b:
-            continue
-        by, bx = b["row"] * H.BLOCK_PX, b["col"] * H.BLOCK_PX
-        win = ratio[by:by + H.BLOCK_PX, bx:bx + H.BLOCK_PX]
+    for (row, col), b in models.items():
+        by, bx = row * B, col * B
+        win = ratio[by:by + B, bx:bx + B]
         d = b["m1"] * win + b["m0"]
-        e = emod[np.minimum(np.arange(by, by + win.shape[0]) // 8, emod.shape[0] - 1)[:, None],
-                 np.minimum(np.arange(bx, bx + win.shape[1]) // 8, emod.shape[1] - 1)]
+        e = emod_on(emod, by, bx, win.shape)
         ok = np.isfinite(win) & (win < res["r_deep"]) & (d <= MAX_DEPTH) & (e >= -H.EMOD_DEEP_M)
-        depth[by:by + H.BLOCK_PX, bx:bx + H.BLOCK_PX] = np.where(ok, np.clip(d, 0.1, MAX_DEPTH), np.nan)
-    ok_blocks = [b for b in res.get("blocks", []) if "fail" not in b]
-    H.log(tile, f"{len(ok_blocks)} blocks pass, {np.isfinite(depth).sum() * 1e-4:.1f} km2 with depth 0-{MAX_DEPTH:.0f} m")
+        depth[by:by + B, bx:bx + B] = np.where(ok, np.clip(d, 0.1, MAX_DEPTH), np.nan)
+    ok_blocks = list({id(b): b for b in models.values()}.values())
+    H.log(tile, f"{n_own} blocks pass, {len(models) - n_own} cells from larger areas, "
+                f"{np.isfinite(depth).sum() * 1e-4:.1f} km2 with depth 0-{MAX_DEPTH:.0f} m")
     return depth, tr, crs, ok_blocks
+
+
+def emod_on(emod, by, bx, shape):
+    """EMODnet depth (stored at 1/8 resolution) for a window of the 10 m grid."""
+    return emod[np.minimum(np.arange(by, by + shape[0]) // 8, emod.shape[0] - 1)[:, None],
+                np.minimum(np.arange(bx, bx + shape[1]) // 8, emod.shape[1] - 1)]
 
 
 def to_tiles(store, depth, tr, crs, clip_ll=None):
