@@ -1,16 +1,18 @@
 """Satellite-derived bathymetry (SDB) prototype for Plavnik (Cres-Krk).
 
-Stumpf et al. (2003) log-ratio: ratio = ln(n*B02) / ln(n*B03), depth = m1*ratio - m0,
-calibrated only against EMODnet cells that come from a real echo-sounder survey.
+Stumpf et al. (2003) log-ratio: ratio = ln(n*B02) / ln(n*B03), depth = m1*ratio + m0,
+calibrated (a) on EMODnet cells that come from a real echo-sounder survey and
+(b) on ICESat-2 ATL24 laser bathymetry photons, validated by leaving whole ICESat-2 passes out.
 
 Usage (from the repo root):
-    python3 -m venv .venv-sdb && .venv-sdb/bin/pip install numpy rasterio matplotlib
+    python3 -m venv .venv-sdb && .venv-sdb/bin/pip install numpy rasterio matplotlib sliderule
     .venv-sdb/bin/python research/sdb/sdb_plavnik.py [SCENE_ID ...]
 
 Downloads (cached in research/sdb/data/, not committed):
   * Sentinel-2 L2A B02/B03/B08 window from the public Element84 Earth Search STAC
     (AWS sentinel-cogs bucket, no login).
   * EMODnet Bathymetry DTM 2024 depth grid (WCS) and the source of each 0-20 m cell (REST).
+  * ICESat-2 ATL24 bathymetry photons via the public SlideRule Earth service (no login).
 Writes research/sdb/results.json and research/sdb/sdb_plavnik.png.
 """
 import json
@@ -45,6 +47,11 @@ N = 1000.0          # Stumpf constant (keeps both logs positive for reflectance 
 NIR_LAND = 0.02     # B08 reflectance above this = land / emergent rock
 MIN_WATER_FRAC = 0.9  # an EMODnet cell is used only if >=90 % of its 10 m pixels are water
 DEPTH_MAX = 20.0
+MAP_MAX = 15.0        # the map stops here: only ~7 % of ICESat-2 calibration pixels are deeper than 10 m
+IS2_MIN_CONF = 0.9    # ATL24 photon confidence; lower values let many false 'bottom' returns in
+IS2_MIN_PHOTONS = 3   # photons needed in a 10 m pixel before its median depth is used
+FALSE_BOTTOM_M = 30.0  # HHI survey deeper than this => an ICESat-2 'bottom' photon there is false
+N_FOLDS = 5           # cross-validation folds, grouped by ICESat-2 pass (date + beam)
 
 
 def fetch(url, path):
@@ -75,6 +82,99 @@ def load_s2(scene):
     with rasterio.open(out) as ds:
         b, g, n = (ds.read(i).astype("f4") * 1e-4 for i in (1, 2, 3))
         return b, g, n, ds.transform, ds.crs
+
+
+def load_icesat2():
+    """ATL24 bathymetry photons (class 40) in BBOX: lon, lat, depth below the sea surface [m]."""
+    out = DATA / "icesat2_atl24.csv"
+    if not out.exists():
+        from sliderule import sliderule  # only needed for the first download
+        sliderule.init()
+        x0, y0, x1, y1 = BBOX
+        aoi = [dict(lon=x0, lat=y0), dict(lon=x1, lat=y0), dict(lon=x1, lat=y1), dict(lon=x0, lat=y1), dict(lon=x0, lat=y0)]
+        gdf = sliderule.run("atl24x", {}, aoi=aoi)
+        gdf = gdf[gdf["class_ph"] == 40]
+        df = dict(lon=gdf.geometry.x.values, lat=gdf.geometry.y.values,
+                  depth=(gdf["surface_h"] - gdf["ortho_h"]).values,  # ATL24 heights are refraction-corrected
+                  confidence=gdf["confidence"].values,
+                  track=[f"{t.date()}_gt{gt}" for t, gt in zip(gdf.index, gdf["gt"])])
+        DATA.mkdir(exist_ok=True)
+        with open(out, "w") as f:
+            f.write("lon,lat,depth,confidence,track\n")
+            for row in zip(*df.values()):
+                f.write("%.7f,%.7f,%.3f,%.4f,%s\n" % row)
+    a = np.genfromtxt(out, delimiter=",", names=True, dtype=None, encoding="utf-8")
+    return a[np.isfinite(a["depth"])]
+
+
+def icesat2_photons(ref):
+    """Confident ATL24 photons, minus false bottoms: photons in an EMODnet cell that the HHI
+    echo-sounder survey puts deeper than FALSE_BOTTOM_M (ATL24 does return isolated 'bottoms'
+    at 8-16 m over 40-80 m deep water). Also returns the EMODnet cell of every photon."""
+    a = load_icesat2()
+    a = a[(a["confidence"] >= IS2_MIN_CONF) & (a["depth"] > 0)]
+    r, c = (np.asarray(v) for v in rowcol(ref["transform"], a["lon"], a["lat"]))
+    inb = (r >= 0) & (r < ref["shape"][0]) & (c >= 0) & (c < ref["shape"][1])
+    a, cell = a[inb], (r * ref["shape"][1] + c)[inb]
+    tag_sources(ref, np.unique(cell))
+    false = np.isin(ref["src"][cell], list(SURVEYED)) & (ref["depth"][cell] > FALSE_BOTTOM_M)
+    return a[~false], cell[~false], int(false.sum()), int(np.unique(cell[false]).size)
+
+
+def icesat2_pixels(a, ratio, tr, crs):
+    """Median ICESat-2 depth per 10 m Sentinel-2 pixel (>= IS2_MIN_PHOTONS photons)."""
+    x, y = transform("EPSG:4326", crs, a["lon"], a["lat"])
+    r, c = (np.asarray(v) for v in rowcol(tr, x, y))
+    ok = (r >= 0) & (r < ratio.shape[0]) & (c >= 0) & (c < ratio.shape[1])
+    pix, dep, trk = r[ok] * ratio.shape[1] + c[ok], a["depth"][ok], a["track"][ok]
+    u, inv, cnt = np.unique(pix, return_inverse=True, return_counts=True)
+    med = np.array([np.median(dep[inv == k]) for k in range(u.size)])
+    first = np.array([trk[inv == k][0] for k in range(u.size)])
+    keep = (cnt >= IS2_MIN_PHOTONS) & np.isfinite(ratio.ravel()[u])
+    return dict(pix=u[keep], depth=med[keep], track=first[keep], ratio=ratio.ravel()[u[keep]],
+                n_photons=int(dep.size), n_tracks=int(np.unique(first[keep]).size))
+
+
+def icesat2_experiment(ref, ratio, tr, crs, r_deep):
+    a, _, n_false, n_false_cells = icesat2_photons(ref)
+    p = icesat2_pixels(a, ratio, tr, crs)
+    tracks = np.unique(p["track"])
+    fold_of = dict(zip(np.random.default_rng(0).permutation(tracks), np.arange(tracks.size) % N_FOLDS))
+    fold = np.array([fold_of[t] for t in p["track"]])
+    oof = np.full(p["depth"].size, np.nan)
+    for k in range(N_FOLDS):
+        m1, m0 = fit(p["ratio"][fold != k], p["depth"][fold != k])
+        oof[fold == k] = m1 * p["ratio"][fold == k] + m0
+    m1, m0 = fit(p["ratio"], p["depth"])
+    res = dict(false_bottom_photons_removed=n_false, false_bottom_cells=n_false_cells, n_photons_used=p["n_photons"], n_pixels=int(p["depth"].size), n_tracks=p["n_tracks"],
+               depth_p10_p50_p90=np.percentile(p["depth"], [10, 50, 90]).round(1).tolist(),
+               r_pearson=float(np.corrcoef(p["ratio"], p["depth"])[0, 1]),
+               cv_by_track=stats(oof, p["depth"]),
+               cv_by_depth={f"{lo}-{hi} m": stats(oof[sel], p["depth"][sel])
+                            for lo, hi in ((0, 5), (5, 10), (10, 15), (15, 25))
+                            if (sel := (p["depth"] > lo) & (p["depth"] <= hi)).sum() >= 5},
+               # the dangerous error for anchoring: SDB says deeper than it is
+               n_sdb_deeper_by_2m=int((oof - p["depth"] > 2).sum()),
+               n_sdb_deeper_by_5m=int((oof - p["depth"] > 5).sum()),
+               model_all=dict(m1=float(m1), m0=float(m0)),
+               max_resolvable_depth_m=float(m1 * r_deep + m0))
+    return res, (m1, m0), dict(pix=p["pix"], depth=p["depth"], oof=oof)
+
+
+def icesat2_vs_emodnet(ref):
+    """How far each EMODnet source is from ICESat-2 (cell medians, confident photons, 0-20 m)."""
+    a, cell, _, _ = icesat2_photons(ref)
+    dep = a["depth"]
+    out = {}
+    cells = np.unique(cell)
+    is2 = np.array([np.median(dep[cell == k]) for k in cells])
+    # select on the ICESat-2 depth, not on EMODnet's, so cells EMODnet puts too deep are included
+    sel = (is2 <= DEPTH_MAX) & (ref["depth"][cells] > 0)
+    for s in set(ref["src"][cells[sel]]):
+        m = sel & (ref["src"][cells] == s)
+        if m.sum() >= 5:
+            out[s or "(none)"] = stats(ref["depth"][cells[m]], is2[m])  # error = EMODnet - ICESat-2
+    return out
 
 
 def stumpf_ratio(b, g, nir):
@@ -120,21 +220,25 @@ def emodnet_reference():
     rows, cols = np.indices(elev.shape)
     lon, lat = (np.asarray(v) for v in xy(tr, rows.ravel(), cols.ravel()))
     depth = -elev.ravel()
+    ref = dict(lon=lon, lat=lat, depth=depth, src=np.full(depth.size, "", dtype=object), transform=tr, shape=elev.shape)
+    tag_sources(ref, np.flatnonzero((depth > 0) & (depth <= DEPTH_MAX)))
+    return ref
+
+
+def tag_sources(ref, cells):
+    """Fill ref['src'] for the given cell indices from the REST API, cached on disk."""
     cache_path = DATA / "emodnet_sources_rest.json"
     cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
-    src = np.full(depth.size, "", dtype=object)
-    todo = np.flatnonzero((depth > 0) & (depth <= DEPTH_MAX))
-    for k, i in enumerate(todo):
-        key = f"{lon[i]:.6f},{lat[i]:.6f}"
+    for k, i in enumerate(cells):
+        key = f"{ref['lon'][i]:.6f},{ref['lat'][i]:.6f}"
         if key not in cache:
-            cache[key] = rest_source(lon[i], lat[i])
+            cache[key] = rest_source(ref["lon"][i], ref["lat"][i])
             time.sleep(0.15)
             if k % 200 == 0:
                 cache_path.write_text(json.dumps(cache))
-                print(f"EMODnet REST {k}/{todo.size}", file=sys.stderr, flush=True)
-        src[i] = cache[key]
+                print(f"EMODnet REST {k}/{len(cells)}", file=sys.stderr, flush=True)
+        ref["src"][i] = cache[key]
     cache_path.write_text(json.dumps(cache))
-    return dict(lon=lon, lat=lat, depth=depth, src=src, transform=tr, shape=elev.shape)
 
 
 def cell_ratios(ref, ratio, water, s2_tr, s2_crs):
@@ -165,7 +269,7 @@ def fit(r, d):
 def stats(pred, obs):
     e = pred - obs
     return dict(n=int(e.size), rmse=float(np.sqrt(np.mean(e ** 2))), bias=float(np.mean(e)),
-                mae=float(np.mean(np.abs(e))), r2=float(1 - np.sum(e ** 2) / np.sum((obs - obs.mean()) ** 2)))
+                mae=float(np.mean(np.abs(e))), p95_abs=float(np.percentile(np.abs(e), 95)), r2=float(1 - np.sum(e ** 2) / np.sum((obs - obs.mean()) ** 2)))
 
 
 def run(scene, ref):
@@ -211,9 +315,10 @@ def run(scene, ref):
     res["deep_water_ratio_p10_p50"] = [r_deep, float(np.median(med[deep]))]
     res["max_resolvable_depth_m"] = dict(eomap_model=float(b1 * r_deep + b0))
     res["hhi_cells_beyond_optical_limit"] = int((r >= r_deep).sum())
+    res["icesat2"], is2_model, is2_pts = icesat2_experiment(ref, ratio, tr, crs, r_deep)
     res["calib_points"] = dict(lon=lon.tolist(), lat=ref["lat"][idx].tolist(), depth=d.tolist(), ratio=r.tolist(),
                                test=test.tolist())
-    return res, ratio, water, tr, crs, dict(survey=(m1, m0), eomap=(b1, b0), r_deep=r_deep)
+    return res, ratio, water, tr, crs, dict(survey=(m1, m0), eomap=(b1, b0), icesat2=is2_model, is2_pts=is2_pts, r_deep=r_deep)
 
 
 def plot(res, ratio, water, tr, crs, models, out):
@@ -227,34 +332,36 @@ def plot(res, ratio, water, tr, crs, models, out):
     ext = (tr.c, tr.c + tr.a * w, tr.f + tr.e * h, tr.f)
     ax.set_facecolor("#e8eef2")
     ax.imshow(np.where(water, np.nan, 1.0), extent=ext, cmap=ListedColormap(["#c9c2b0"]), interpolation="nearest")
-    # The survey-calibrated model has no skill (it is ~flat), so the map shows the EOMAP-calibrated
-    # one to give the *shape* of the shallow shelf. Both are labelled on the figure.
-    b1, b0 = models["eomap"]
-    depth = b1 * ratio + b0
-    depth[(depth < 0) | (depth > DEPTH_MAX) | (ratio >= models["r_deep"])] = np.nan
-    im = ax.imshow(depth, extent=ext, cmap="viridis_r", vmin=0, vmax=DEPTH_MAX, interpolation="nearest")
-    fig.colorbar(im, ax=ax, shrink=0.8, label="relative SDB depth [m]; blank = optically deep (can't tell)")
+    # Map: calibrated on ICESat-2 (the only reference with real shallow depths here).
+    m1, m0 = models["icesat2"]
+    depth = m1 * ratio + m0
+    depth[(depth < 0) | (depth > MAP_MAX) | (ratio >= models["r_deep"])] = np.nan
+    im = ax.imshow(depth, extent=ext, cmap="viridis_r", vmin=0, vmax=MAP_MAX, interpolation="nearest")
+    fig.colorbar(im, ax=ax, shrink=0.8, label=f"SDB depth [m]; blank = deeper than {MAP_MAX:.0f} m or can't tell")
+    pts = models["is2_pts"]
+    rr, cc = np.divmod(pts["pix"], w)
+    ax.scatter(tr.c + (cc + 0.5) * tr.a, tr.f + (rr + 0.5) * tr.e, s=1.5, c="k", lw=0, label="ICESat-2 ATL24 pixels")
     cp = res["calib_points"]
     x, y = transform("EPSG:4326", crs, cp["lon"], cp["lat"])
     ax.scatter(x, y, s=12, facecolors="none", edgecolors="red", lw=0.8, label="HHI survey cells 0-20 m (EMODnet)")
-    ax.legend(loc="lower left", fontsize=8)
+    ax.legend(loc="lower left", fontsize=8, markerscale=3)
     (x0, x1), (y0, y1) = transform("EPSG:4326", crs, [14.465, 14.585], [44.935, 45.0])
     ax.set(xlim=(x0, x1), ylim=(y0, y1), xticks=[], yticks=[])
-    ax.set_title(f"Plavnik, Sentinel-2 {res['scene'][10:18]}, Stumpf log-ratio calibrated on EOMAP SDB\n"
-                 "RESEARCH ONLY - NOT VALIDATED - NOT FOR NAVIGATION", fontsize=10)
+    ax.set_title(f"Plavnik, Sentinel-2 {res['scene'][10:18]}, Stumpf log-ratio calibrated on ICESat-2\n"
+                 "RESEARCH ONLY - NOT FOR NAVIGATION", fontsize=10)
 
+    ax2.scatter(pts["depth"], pts["oof"], s=8, c="tab:blue", alpha=0.5, lw=0, label="ICESat-2 pixels, pass held out")
     d, r = np.array(cp["depth"]), np.array(cp["ratio"])
-    m1, m0 = models["survey"]
+    s1, s0 = models["survey"]
     t = np.array(cp["test"])
-    ax2.scatter(d[~t], m1 * r[~t] + m0, s=14, c="k", alpha=0.6, label="calibrated on HHI survey (fit)")
-    ax2.scatter(d[t], m1 * r[t] + m0, s=22, marker="x", c="red", label="calibrated on HHI survey (held out)")
-    ax2.scatter(d, b1 * r + b0, s=16, marker="^", facecolors="none", edgecolors="tab:blue", label="calibrated on EOMAP SDB")
+    ax2.scatter(d[t], s1 * r[t] + s0, s=22, marker="x", c="red", label="HHI-calibrated, held out")
     ax2.plot([0, DEPTH_MAX], [0, DEPTH_MAX], "k--", lw=0.8)
-    ax2.set(xlim=(0, DEPTH_MAX + 1), ylim=(-2, 30), xlabel="HHI survey depth (EMODnet cell) [m]", ylabel="SDB depth [m]")
-    s, e = res["random_holdout"], res["eomap_calibrated"]["vs_hhi_survey"]
-    ax2.set_title(f"vs survey: held-out RMSE {s['rmse']:.1f} m, R2 {s['r2']:.2f} (n={s['n']});\n"
-                  f"EOMAP-calibrated: RMSE {e['rmse']:.1f} m, bias {e['bias']:+.1f} m, R2 {e['r2']:.2f} (n={e['n']})",
-                  fontsize=9)
+    ax2.set(xlim=(0, DEPTH_MAX + 1), ylim=(-2, 25), xlabel="reference depth [m]", ylabel="SDB depth [m]")
+    cv = res["icesat2"]["cv_by_track"]
+    band = res["icesat2"]["cv_by_depth"]
+    lines = ", ".join(f"{k}: {v['rmse']:.1f}" for k, v in band.items())
+    ax2.set_title(f"ICESat-2, {N_FOLDS}-fold CV by pass: RMSE {cv['rmse']:.1f} m, bias {cv['bias']:+.1f} m, "
+                  f"R2 {cv['r2']:.2f} (n={cv['n']})\nRMSE by depth [m]: {lines}", fontsize=9)
     ax2.legend(fontsize=8, loc="upper left")
     fig.tight_layout()
     fig.savefig(out, dpi=120)
@@ -270,7 +377,9 @@ def main(scenes):
         res.pop("calib_points", None)
         allres.append(res)
         print(json.dumps(res, indent=1))
-    (HERE / "results.json").write_text(json.dumps(allres, indent=1) + "\n")
+    out = dict(scenes=allres, icesat2_vs_emodnet_error_m=icesat2_vs_emodnet(ref))
+    print(json.dumps(out["icesat2_vs_emodnet_error_m"], indent=1))
+    (HERE / "results.json").write_text(json.dumps(out, indent=1) + "\n")
 
 
 if __name__ == "__main__":
