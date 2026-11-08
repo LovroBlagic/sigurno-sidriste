@@ -37,6 +37,51 @@ export function normBoat(b) {
   return boat.draft || boat.chain || boat.length ? boat : null;
 }
 
+// Pragovi za upozorenje na vjetar (udari, čvorovi)
+export const STRONG_KN = 25;  // jak vjetar: sidriti samo u dobrom zaklonu
+export const GALE_KN = 34;    // olujni vjetar (Beaufort 8)
+
+// Simulirana prognoza za testiranje i demonstraciju (?sim=bura | jugo); rezultat je označen kao simulacija
+export function simulatedWeather(kind, now = new Date()) {
+  const S = { bura: { dir: 40, base: 14, peak: 42, peakAt: 7, wave: 0.6 }, jugo: { dir: 130, base: 16, peak: 36, peakAt: 9, wave: 1.9 } }[kind];
+  if (!S) return null;
+  const hours = Array.from({ length: 24 }, (_, h) => {
+    const k = Math.max(0, 1 - Math.abs(h - S.peakAt) / 8);
+    const gust = Math.round(S.base + (S.peak - S.base) * k);
+    const t = new Date(now.getTime() + h * 3600e3);
+    return { t: `${String(t.getHours()).padStart(2, "0")}:00`, speed: Math.round(gust * 0.62), gust, dir: S.dir + ((h * 7) % 15) - 7 };
+  });
+  return summarizeWeather(hours, { wave: S.wave, wavePeriod: kind === "jugo" ? 6 : 3 }, true);
+}
+
+// Iz satne prognoze (24 h) napravi sažetak: sada, najjače u 12 h i 24 h, korake po 3 h i upozorenje
+export function summarizeWeather(hours, sea = {}, simulated = false) {
+  const now = hours[0];
+  const peak = (n) => hours.slice(0, n).reduce((a, b) => (b.gust > a.gust ? b : a), hours[0]);
+  const p12 = peak(12), p24 = peak(24);
+  const steps = [];
+  for (let i = 0; i < hours.length; i += 3) {
+    const blk = hours.slice(i, i + 3);
+    const top = blk.reduce((a, b) => (b.gust > a.gust ? b : a), blk[0]);
+    steps.push({ t: blk[0].t, speed: Math.round(top.speed), gust: Math.round(top.gust), dir: Math.round(top.dir) });
+  }
+  const top = Math.max(now.gust, p24.gust);
+  const at = top === now.gust ? now : p24;
+  const w = windOf(at.dir);
+  const alert = top >= STRONG_KN ? {
+    level: top >= GALE_KN ? "olujni" : "jak", gust: Math.round(top), name: w.name, side: w.side, dir: Math.round(at.dir),
+    time: at.t, inHours: Math.max(0, hours.indexOf(at)),
+  } : null;
+  return {
+    speed: now.speed, dir: now.dir, gust: now.gust,
+    gustMax12: p12.gust, gustMaxTime: p12.t, gustMaxDir: p12.dir,
+    gustMax24: p24.gust, gustMax24Time: p24.t, gustMax24Dir: p24.dir,
+    hourly: steps, alert,
+    wave: sea.wave ?? null, wavePeriod: sea.wavePeriod ?? null,
+    ...(simulated ? { simulated: true } : {}),
+  };
+}
+
 export const windOf = (deg) => WINDS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 
 const UA = "safe-anchor-hackathon/1.0";
@@ -181,18 +226,15 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     const q = `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`;
     const [w, m] = await Promise.all([
       getJSON(`https://api.open-meteo.com/v1/forecast?${q}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-        `&hourly=wind_gusts_10m,wind_direction_10m&forecast_hours=12&wind_speed_unit=kn&timezone=Europe%2FZagreb`),
+        `&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&forecast_hours=24&wind_speed_unit=kn&timezone=Europe%2FZagreb`),
       getJSON(`https://marine-api.open-meteo.com/v1/marine?${q}&current=wave_height,wave_period`).catch(() => null),
     ]);
-    const g = w.hourly?.wind_gusts_10m || [];
-    const i = g.length ? g.indexOf(Math.max(...g)) : -1;
-    const v = {
-      speed: w.current.wind_speed_10m, dir: w.current.wind_direction_10m, gust: w.current.wind_gusts_10m,
-      gustMax12: i >= 0 ? g[i] : null,
-      gustMaxTime: i >= 0 ? w.hourly.time[i].slice(11, 16) : null,
-      gustMaxDir: i >= 0 ? w.hourly.wind_direction_10m[i] : null,
-      wave: m?.current?.wave_height ?? null, wavePeriod: m?.current?.wave_period ?? null,
-    };
+    const h = w.hourly || {};
+    const hours = [
+      { t: w.current.time.slice(11, 16), speed: w.current.wind_speed_10m, gust: w.current.wind_gusts_10m, dir: w.current.wind_direction_10m },
+      ...(h.time || []).slice(1).map((t, i) => ({ t: t.slice(11, 16), speed: h.wind_speed_10m[i + 1], gust: h.wind_gusts_10m[i + 1], dir: h.wind_direction_10m[i + 1] })),
+    ].filter((x) => x.gust != null);
+    const v = summarizeWeather(hours, { wave: m?.current?.wave_height, wavePeriod: m?.current?.wave_period });
     weatherCache.set(key, { t: Date.now(), v });
     return v;
   }
@@ -274,27 +316,38 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
 
     // Vjetar, valovi, zaklon
     const w = ctx.weather;
-    const windy = w && (w.gust >= 20 || (w.gustMax12 ?? 0) >= 25);
+    const peak = w ? (w.gustMax24 ?? w.gustMax12 ?? 0) : 0;
+    const windy = w && (w.gust >= 20 || peak >= STRONG_KN);
+    // Je li točka zaklonjena (kopno unutar SHELTER_KM s barem 2 od 3 strane) od najjačeg vjetra koji dolazi?
+    const refDeg = w ? (w.alert?.dir ?? w.gustMax24Dir ?? w.gustMaxDir ?? w.dir) : null;
+    let shelteredRef = false;
+    if (ctx.rays && refDeg != null) {
+      const i = WINDS.indexOf(windOf(refDeg));
+      shelteredRef = [i, i + 1, i + 7].map((k) => ctx.rays[k % 8]).filter((r) => r != null && r <= SHELTER_KM).length >= 2;
+    }
     if (w) {
       const now = windOf(w.dir);
       let lvl = "good", d = "Slab vjetar.";
-      if (w.gust >= 30 || (w.gustMax12 ?? 0) >= 35) { lvl = "bad"; d = "Jaki udari - sidrenje je rizično, potraži zaštićenu luku."; score -= 30; }
-      else if (windy) { lvl = "ok"; d = "Svjež vjetar - budi u zaklonu i pusti više lanca."; score -= 12; }
+      if ((w.gust >= 30 || peak >= 35) && shelteredRef) { lvl = "ok"; d = "Jaki udari, ali ovdje si u zaklonu od njih. Pusti 7:1 lanca, provjeri drži li sidro i dežuraj noću."; score -= 10; }
+      else if (w.gust >= 30 || peak >= 35) { lvl = "bad"; d = "Jaki udari - sidrenje je rizično, potraži zaklon ili zaštićenu luku."; score -= 30; }
+      else if (windy) { lvl = "ok"; d = "Svjež vjetar - budi u zaklonu i pusti više lanca."; score -= shelteredRef ? 5 : 12; }
       if (now.name === "bura" && w.gust >= 15) d += " Bura dolazi na snažne refule s planina i može naglo ojačati.";
       if (now.name === "jugo" && w.speed >= 12) d += " Jugo kroz dan diže veliko more - izbjegavaj uvale otvorene prema jugoistoku.";
       facts.push({ id: "wind", k: "Vjetar sada", v: `${Math.round(w.speed)} čv ${now.side} (${now.name}) · udari ${Math.round(w.gust)}`, arrow: w.dir, lvl, d });
-      if (w.gustMax12 != null) {
-        const nx = windOf(w.gustMaxDir);
+      if (w.gustMax24 != null || w.gustMax12 != null) {
+        const nx = windOf(w.gustMax24Dir ?? w.gustMaxDir);
         facts.push({
-          id: "forecast", k: "Idućih 12 h", v: `udari do ${Math.round(w.gustMax12)} čv`,
-          lvl: w.gustMax12 >= 35 ? "bad" : w.gustMax12 >= 25 ? "ok" : "good",
-          d: `Najjače oko ${w.gustMaxTime}, ${nx.name} (${nx.side}).`,
+          id: "forecast", k: w.gustMax24 != null ? "Idućih 24 h" : "Idućih 12 h", v: `udari do ${Math.round(peak)} čv`,
+          lvl: peak >= 35 ? "bad" : peak >= STRONG_KN ? "ok" : "good",
+          d: `Najjače oko ${w.gustMax24Time ?? w.gustMaxTime}, ${nx.name} (${nx.side}).`,
         });
       }
       if (w.wave != null) {
-        const wl = w.wave >= 1.5 ? "bad" : w.wave >= 0.8 ? "ok" : "good";
-        if (wl === "bad") score -= 15; else if (wl === "ok") score -= 5;
-        facts.push({ id: "waves", k: "Valovi", v: `${w.wave.toFixed(1)} m${w.wavePeriod ? ` · ${Math.round(w.wavePeriod)} s` : ""}`, lvl: wl, d: wl === "good" ? "Mirno more." : "Na sidru će ljuljati ako je uvala otvorena." });
+        let wl = w.wave >= 1.5 ? "bad" : w.wave >= 0.8 ? "ok" : "good";
+        let wd = wl === "good" ? "Mirno more." : "Na sidru će ljuljati ako je uvala otvorena.";
+        if (wl !== "good" && shelteredRef) { wl = "ok"; wd = "Vani je valovito, ali uvala je zaklonjena od smjera vjetra - očekuj tek malo ljuljanja."; }
+        else if (wl === "bad") score -= 15; else if (wl === "ok") score -= 5;
+        facts.push({ id: "waves", k: "Valovi", v: `${w.wave.toFixed(1)} m${w.wavePeriod ? ` · ${Math.round(w.wavePeriod)} s` : ""}${wl !== "good" && shelteredRef ? " vani" : ""}`, lvl: wl, d: wd });
       }
     } else if (ctx.weatherError) {
       facts.push({ id: "wind", k: "Vjetar", v: "nedostupno", lvl: "na", d: "Prognoza nije dostupna. Provjeri pomorsku prognozu DHMZ-a." });
@@ -311,16 +364,22 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       shelter = { from: from.map((x) => x.name), open: open.map((x) => x.side) };
       // Je li točka zaklonjena od najjačeg vjetra u idućih 12 h?
       let lvl = "good", d;
-      const ref = w ? windOf(w.gustMaxDir ?? w.dir) : null;
-      const refGust = w ? Math.max(w.gust, w.gustMax12 ?? 0) : 0;
+      const ref = w ? windOf(w.alert?.dir ?? w.gustMax24Dir ?? w.gustMaxDir ?? w.dir) : null;
+      const refGust = w ? Math.max(w.gust, peak) : 0;
       if (ref) {
         const i = WINDS.indexOf(ref);
         const side = [i, (i + 1) % 8, (i + 7) % 8].map((k) => ctx.rays[k]);
         const covered = side.filter((r) => r != null && r <= SHELTER_KM).length;
-        if (covered >= 2) d = `Zaklonjeno od vjetra koji dolazi (${ref.name}).`;
-        else if (refGust >= 15) {
+        const al = w.alert;
+        const when = al ? ` (${al.name} do ${al.gust} čv${al.inHours ? ` oko ${al.time}` : " sada"})` : "";
+        if (covered >= 2) d = `Zaklonjeno od vjetra koji dolazi${when || ` (${ref.name})`}.`;
+        else if (al?.level === "olujni") {
+          lvl = "bad"; score -= 40;
+          blocker = blocker || `Otvoreno prema ${ref.side} - stiže olujni vjetar${when}`;
+          d = `Otvoreno prema ${ref.side}${when}. Vjetar i valovi ulazit će ravno u sidrište - premjesti se${al.inHours ? " prije toga" : " odmah"} u zaklon ili u luku.`;
+        } else if (refGust >= 15) {
           lvl = refGust >= 25 ? "bad" : "ok"; score -= refGust >= 25 ? 30 : 20;
-          d = `Otvoreno prema ${ref.side} - ${ref.name} će ulaziti ravno u sidrište.`;
+          d = `Otvoreno prema ${ref.side} - ${ref.name} će ulaziti ravno u sidrište${when}.`;
         } else { lvl = "ok"; d = `Otvoreno prema ${ref.side}, ali vjetar je zasad slab.`; }
       }
       const head = from.length ? `zaklon od: ${list(from.map((x) => x.name))}` : "nema zaklona";
@@ -441,9 +500,21 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
    * Pretraži krug oko točke: mreža dubina (~250 m), odbaci posidoniju, stijene i preduboko,
    * boduj dno + dubinu + zaklon od prognoziranog vjetra, pa detaljno provjeri najbolje.
    */
-  async function findSpots(lat, lon, { radiusKm = 4, max = 5, onProgress, boat } = {}) {
+  async function findSpots(lat, lon, { radiusKm = 4, max = 5, onProgress, boat, weather: givenWeather } = {}) {
     await ready;
     boat = normBoat(boat);
+    const weather = givenWeather ?? await weatherAt(lon, lat).catch(() => null);
+    // Loše vrijeme: samo mjesta zaklonjena od vjetra koji dolazi; ako ih nema, proširi krug jednom
+    const storm = weather?.alert ?? null;
+    let res = await searchGrid(lat, lon, { radiusKm, max, onProgress, boat, weather, strict: !!storm });
+    if (storm && !res.spots.length && radiusKm < 7) {
+      res = await searchGrid(lat, lon, { radiusKm: 7, max, onProgress, boat, weather, strict: true });
+      res.widened = true;
+    }
+    return { ...res, alert: storm, stormMode: !!storm };
+  }
+
+  async function searchGrid(lat, lon, { radiusKm, max, onProgress, boat, weather, strict }) {
     // raspon dubina za kandidate: gaz + 1,5 m do dubine za koju lanac doseže barem 4:1 (najviše 18 m)
     const minD = Math.max(3, boat?.draft ? boat.draft + 1.5 : 3);
     const maxD = Math.max(minD, Math.min(18, boat?.chain ? boat.chain / 4 - 1.5 : 18));
@@ -453,7 +524,6 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     const dLat = radiusKm / 111.32;
     const dLon = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180));
     const lat0 = lat - dLat, lon0 = lon - dLon, lon1 = lon + dLon;
-    const weather = await weatherAt(lon, lat).catch(() => null);
 
     let done = 0;
     const grid = await pool([...Array(n).keys()], 8, async (r) => {
@@ -471,7 +541,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     const coord = (r, c) => [lon0 + (2 * dLon * c) / (n - 1), lat0 + (2 * dLat * r) / (n - 1)];
     const land = (d) => d !== undefined && d <= 0;
 
-    const ref = weather ? windOf(weather.gustMaxDir ?? weather.dir) : null;
+    const ref = weather ? windOf(weather.alert?.dir ?? weather.gustMax24Dir ?? weather.gustMaxDir ?? weather.dir) : null;
     const refI = ref ? WINDS.indexOf(ref) : -1;
     const shelterSteps = Math.round(SHELTER_KM / step);
     const cands = [];
@@ -507,7 +577,8 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       s += cover.filter(Boolean).length * 2;                // općenita zatvorenost
       if (refI >= 0) {
         const side = [refI, (refI + 1) % 8, (refI + 7) % 8].filter((k) => cover[k]).length;
-        s += side * 8;                                      // zaklon od prognoziranog vjetra
+        if (strict && side < 2) continue;                   // loše vrijeme: mora biti zaklonjeno
+        s += side * (strict ? 16 : 8);                      // zaklon od prognoziranog vjetra
       }
       s -= distKm * 2;
       cands.push({ x, y, s, d, rays });

@@ -25,7 +25,7 @@
       "get": {
         "operationId": "pronadiSidriste",
         "summary": "Najbolja sidrišta u blizini",
-        "description": "Pretražuje mrežu točaka (razmak 200–250 m) u krugu oko zadanog mjesta. Kandidati moraju biti duboki 3–18 m, ne smiju dirati kopno, moraju imati zaklon s barem 3 strane i ne smiju biti na morskoj travi ni na stijenama. Vraća do 5 mjesta međusobno udaljenih barem 600 m, poredanih po ocjeni pa po udaljenosti. Prva pretraga u nekom području traje 8–15 s jer se dubine mjere uživo.",
+        "description": "Pretražuje mrežu točaka (razmak 200–250 m) u krugu oko zadanog mjesta. Kandidati moraju biti duboki 3–18 m, ne smiju dirati kopno, moraju imati zaklon s barem 3 strane i ne smiju biti na morskoj travi ni na stijenama. Vraća do 5 mjesta međusobno udaljenih barem 600 m, poredanih po ocjeni pa po udaljenosti. Prva pretraga u nekom području traje 8–15 s jer se dubine mjere uživo. Kad udari u idućih 24 h dosegnu 25 čv, uključuje se način rada za loše vrijeme: vraćaju se samo mjesta zaklonjena od tog vjetra, a ako ih nema, krug se jednom proširuje na 7 km.",
         "parameters": [
           {
             "$ref": "#/components/parameters/lat"
@@ -61,6 +61,9 @@
           },
           {
             "$ref": "#/components/parameters/duljina"
+          },
+          {
+            "$ref": "#/components/parameters/sim"
           }
         ],
         "responses": {
@@ -114,6 +117,9 @@
           },
           {
             "$ref": "#/components/parameters/duljina"
+          },
+          {
+            "$ref": "#/components/parameters/sim"
           }
         ],
         "responses": {
@@ -287,6 +293,18 @@
           "maximum": 60
         },
         "example": 12
+      },
+      "sim": {
+        "name": "sim",
+        "in": "query",
+        "description": "Simulirana prognoza za testiranje i demonstraciju načina rada za loše vrijeme. Odgovor tada ima weather.simulated = true.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "bura",
+            "jugo"
+          ]
+        }
       }
     },
     "responses": {
@@ -382,6 +400,46 @@
               "null"
             ],
             "description": "Period vala, s"
+          },
+          "gustMax24": {
+            "type": "number",
+            "description": "Najjači udar idućih 24 h, čvorovi"
+          },
+          "gustMax24Time": {
+            "type": "string",
+            "example": "03:00"
+          },
+          "gustMax24Dir": {
+            "type": "number"
+          },
+          "hourly": {
+            "type": "array",
+            "description": "Najjači udar u svakom bloku od 3 h, idućih 24 h",
+            "items": {
+              "type": "object",
+              "properties": {
+                "t": {
+                  "type": "string",
+                  "example": "21:00"
+                },
+                "speed": {
+                  "type": "number"
+                },
+                "gust": {
+                  "type": "number"
+                },
+                "dir": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "alert": {
+            "$ref": "#/components/schemas/Alert"
+          },
+          "simulated": {
+            "type": "boolean",
+            "description": "true kad je prognoza simulirana (?sim=)"
           }
         }
       },
@@ -609,6 +667,17 @@
             "minItems": 2,
             "maxItems": 2,
             "description": "Raspon dubina (m) u kojem su traženi kandidati, ovisno o gazu i lancu"
+          },
+          "alert": {
+            "$ref": "#/components/schemas/Alert"
+          },
+          "stormMode": {
+            "type": "boolean",
+            "description": "Način rada za loše vrijeme: samo mjesta zaklonjena od vjetra koji dolazi"
+          },
+          "widened": {
+            "type": "boolean",
+            "description": "Krug je proširen na 7 km jer bliže nije bilo zaklona"
           }
         }
       },
@@ -633,6 +702,43 @@
               "number",
               "null"
             ]
+          }
+        }
+      },
+      "Alert": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "description": "Upozorenje kad udari u idućih 24 h dosegnu 25 čv (jak) ili 34 čv (olujni)",
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "jak",
+              "olujni"
+            ]
+          },
+          "gust": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string",
+            "example": "bura"
+          },
+          "side": {
+            "type": "string",
+            "example": "SI"
+          },
+          "dir": {
+            "type": "number"
+          },
+          "time": {
+            "type": "string",
+            "example": "03:00"
+          },
+          "inHours": {
+            "type": "integer"
           }
         }
       }

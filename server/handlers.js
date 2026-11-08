@@ -2,6 +2,7 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { engine } from "./engine.js";
 import { createMcpServer } from "../mcp/tools.js";
+import { simulatedWeather } from "../web/core.js";
 
 export const send = (res, code, obj, cache = "no-store") => {
   res.statusCode = code;
@@ -37,10 +38,12 @@ export async function handleApi(route, req, res) {
     }
     if (!where) return send(res, 400, { error: "Zadaj lat i lon (unutar hrvatskog Jadrana) ili q" });
     const boat = { draft: u.searchParams.get("gaz"), chain: u.searchParams.get("lanac"), length: u.searchParams.get("duljina") };
-    if (route === "check") return send(res, 200, await engine.checkSpot(where.lat, where.lon, { boat }));
+    // ?sim=bura|jugo: simulirana prognoza za testiranje i demonstraciju (rezultat nosi weather.simulated = true)
+    const weather = simulatedWeather(u.searchParams.get("sim")) ?? undefined;
+    if (route === "check") return send(res, 200, await engine.checkSpot(where.lat, where.lon, { boat, weather }));
     if (route === "find") {
       const radiusKm = Math.min(8, Math.max(1, parseFloat(u.searchParams.get("r")) || 4));
-      return send(res, 200, { name, ...(await engine.findSpots(where.lat, where.lon, { radiusKm, max: 5, boat })) });
+      return send(res, 200, { name, ...(await engine.findSpots(where.lat, where.lon, { radiusKm, max: 5, boat, weather })) });
     }
     send(res, 404, { error: "Nepoznata ruta" });
   } catch (e) {

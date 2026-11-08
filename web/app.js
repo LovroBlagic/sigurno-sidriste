@@ -4,8 +4,10 @@ import { HOLD, windOf, normBoat } from "./core.js";
 const GRASS = "#2a9d5c";
 
 // Sve žive provjere ide preko našeg servera (server/index.js), koji štedi i predmemorira pozive prema EMODnetu.
+// ?sim=bura ili ?sim=jugo u adresi stranice: simulirana prognoza za testiranje i demonstraciju
+const SIM = new URLSearchParams(location.search).get("sim");
 async function api(route, params) {
-  const r = await fetch(`api/${route}?${new URLSearchParams(params)}`);
+  const r = await fetch(`api/${route}?${new URLSearchParams({ ...params, ...(SIM && route !== "geocode" ? { sim: SIM } : {}) })}`);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
   return j;
@@ -168,6 +170,24 @@ function setMe(lat, lon, acc) {
   state.meMarker.bindTooltip(`Tvoj brod${acc ? ` (±${Math.round(acc)} m)` : ""}`);
 }
 
+/* ---------------- vrijeme: upozorenje i prognoza po 3 h ---------------- */
+function alertBox(al, forList) {
+  if (!al) return "";
+  const when = al.inHours ? `oko ${al.time} (za ${al.inHours} h)` : "sada";
+  return `<div class="alert ${al.level === "olujni" ? "bad" : "ok"}" role="alert">
+    <b>${al.level === "olujni" ? "Olujni" : "Jak"} vjetar: ${al.name} do ${al.gust} čv ${when}</b>
+    <span>${forList ? `Pokazujem samo mjesta zaklonjena od ${al.side}. Ako nijedno ne odgovara, potraži luku ili marinu i stigni prije vjetra.`
+      : `Sidri samo gdje je kopno između tebe i vjetra (${al.side}). Pusti 7:1 lanca i dežuraj noću.`}</span></div>`;
+}
+function windStrip(w) {
+  if (!w?.hourly?.length) return "";
+  return `<div class="wstrip" aria-label="Udari vjetra idućih 24 sata">${w.hourly.map((h) => `
+    <div class="${h.gust >= 34 ? "bad" : h.gust >= 25 ? "ok" : ""}"><small>${h.t}</small>
+      <span class="wind-arrow" style="transform:rotate(${h.dir + 180}deg)">↑</span><b>${h.gust}</b></div>`).join("")}
+    </div><p class="wstrip-cap">Udari vjetra (čv) idućih 24 h · strelica pokazuje kamo puše${w.simulated ? "" : " · Open-Meteo"}</p>
+    ${w.simulated ? `<p class="sim">SIMULACIJA - prognoza je izmišljena za demonstraciju načina rada za loše vrijeme</p>` : ""}`;
+}
+
 /* ---------------- traženje sidrišta ---------------- */
 async function find(lat, lng, label) {
   const req = ++state.req;
@@ -202,9 +222,11 @@ function renderFind(res, label) {
     }).on("click", () => showSpot(s, true)));
   });
   const w = res.weather;
-  const windLine = w ? `Vjetar sada ${Math.round(w.speed)} čv, udari do ${Math.round(Math.max(w.gust, w.gustMax12 ?? 0))} čv${res.wind ? ` · najjače puše ${res.wind}` : ""}` : "";
+  const windLine = w ? `Vjetar sada ${Math.round(w.speed)} čv, udari do ${Math.round(Math.max(w.gust, w.gustMax24 ?? w.gustMax12 ?? 0))} čv u 24 h${res.wind ? ` · najjače puše ${res.wind}` : ""}${res.widened ? ` · krug proširen na ${res.radiusKm} km` : ""}` : "";
   body.innerHTML = `${back()}<h2>${label ? esc(label) : "Sidrišta u blizini"}</h2>
+    ${alertBox(res.alert, true)}
     ${windLine ? `<p class="lead">${windLine}</p>` : ""}
+    ${windStrip(w)}
     ${res.boat ? `<p class="boat-tag">${BOAT_SVG}Za tvoj brod: ${esc(boatLine(res.boat))}</p>` : ""}
     ${res.spots.length ? `<ol class="spots">${res.spots.map((s, i) => `
       <li><button type="button" data-i="${i}">
@@ -212,6 +234,7 @@ function renderFind(res, label) {
         <span class="sp-main"><b>${s.title}</b><span>${[s.depth != null ? `${s.depth} m` : null, s.seabed?.toLowerCase(), s.shelter?.from.length ? `zaklon od: ${s.shelter.from.join(", ")}` : null].filter(Boolean).join(" · ")}</span></span>
         <span class="sp-side"><b>${s.score}</b><small>${state.me ? esc(fromMe(s.lat, s.lon).text.replace(" od tebe", "")) : `${s.distanceKm} km`}</small></span>
       </button></li>`).join("")}</ol>`
+      : res.alert ? `<p class="tip">U krugu od ${res.radiusKm} km nema mjesta zaklonjenog od ${res.alert.side}. Potraži luku ili marinu i stigni prije vjetra.</p>`
       : `<p class="tip">U krugu od 4 km nisam našao dobro sidrište (dno, dubina ${(res.depthRange || [3, 18]).map(num1).join("–")} m, zaklon). Pomakni kartu bliže obali ili uvali i pokušaj opet.${res.boat?.chain && res.depthRange?.[1] < 10 ? ` S ${res.boat.chain} m lanca možeš sidriti najdublje oko ${num1(res.depthRange[1])} m.` : ""}</p>`}
     <p class="hint">Dodirni broj na karti ili u popisu za detalje.</p>`;
   wireBack();
@@ -247,12 +270,14 @@ function showSpot(s, fromList) {
       <div class="sub">${esc(s.reason)}</div>
     </div>
     ${s.chain ? `<p class="chain"><b>${s.chain} m</b> lanca${s.depth != null ? ` · ${s.depth} m dubine` : ""}</p>` : ""}
+    ${alertBox(s.weather?.alert, false)}
     ${state.me ? `<p class="from-me">${BOAT_SVG}${esc(fromMe(s.lat, s.lon).text)}</p>` : ""}
     <ul class="facts">${s.facts.map((f) => `
       <li class="fact"><span class="dot ${f.lvl}"></span><span class="k">${f.k}</span>
         <span class="v">${f.arrow != null ? `<span class="wind-arrow" style="transform:rotate(${f.arrow + 180}deg)">↑</span> ` : ""}${esc(f.v)}</span>
         <span class="d">${esc(f.d)}</span></li>`).join("")}
     </ul>
+    ${windStrip(s.weather)}
     ${s.tips.filter((t) => !t.startsWith("Pusti")).map((t) => `<p class="tip">${esc(t)}</p>`).join("")}
     <div class="actions">
       <button class="btn ghost" type="button" id="share">Podijeli</button>
@@ -300,7 +325,7 @@ function toast(msg) {
   setTimeout(() => t.remove(), 3200);
 }
 
-function setHash(h) { history.replaceState(null, "", h ? `#${h}` : location.pathname); }
+function setHash(h) { history.replaceState(null, "", `${location.pathname}${location.search}${h ? `#${h}` : ""}`); }
 
 /* ---------------- događaji ---------------- */
 map.on("click", (e) => check(e.latlng.lat, e.latlng.lng));

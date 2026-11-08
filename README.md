@@ -2,6 +2,8 @@
 
 Gdje sidriti na hrvatskom Jadranu. Upiši mjesto (npr. *Pakleni otoci*), pritisni **Pronađi sidrište u blizini** i dobiješ do 5 najboljih mjesta s dubinom, vrstom dna, zaklonom i duljinom lanca. Ili dodirni more na karti za provjeru jedne točke.
 
+**Loše vrijeme:** kad u idućih 24 h stiže jak ili olujni vjetar (udari od 25 čv), aplikacija to istakne i nudi samo mjesta zaklonjena od tog vjetra, po potrebi u većem krugu. Prikazuje i udare po 3 sata. Za demonstraciju: [`?sim=bura`](https://sigurno-sidriste.vercel.app/?sim=bura#f=43.1680,16.3700) ili `?sim=jugo`.
+
 **Moj brod:** upiši gaz, duljinu lanca i duljinu broda, pa aplikacija odbacuje preplitka i preduboka mjesta i provjerava krug okretanja. Gumb za lokaciju traži sidrišta oko tvog broda i za svako pokazuje udaljenost i smjer (km, NM).
 
 **Uživo za testiranje:** https://sigurno-sidriste.vercel.app · MCP: `https://sigurno-sidriste.vercel.app/mcp` · API: [`/openapi.json`](https://sigurno-sidriste.vercel.app/openapi.json)
@@ -19,8 +21,8 @@ Isto znanje dostupno je i AI asistentima preko **MCP servera**, pa nautičar mo�
 | Livade morske trave | EMODnet Seabed Habitats 2025 (UNEP-WCMC, HAOP) | kartirana posidonija / čvorasta morska resa → **ne sidri** |
 | Moguća posidonija | EUSeaMap 2025 infralitoral + hrvatska Art. 17 mreža | upozorenje: spusti sidro na svijetli pijesak |
 | Dubina | EMODnet Bathymetry (uživo) | 3–15 m idealno, >35 m preduboko |
-| Zaklon | EMODnet profili dubine u 8 smjerova (uživo) | kopno unutar 1,5 km u smjeru najjačeg vjetra idućih 12 h |
-| Vjetar, udari, valovi | Open-Meteo (uživo) | hrvatski nazivi vjetrova (bura, jugo, maestral…) |
+| Zaklon | EMODnet profili dubine u 8 smjerova (uživo) | kopno unutar 1,5 km u smjeru najjačeg vjetra idućih 24 h |
+| Vjetar, udari, valovi | Open-Meteo (uživo, 24 h po satima) | hrvatski nazivi vjetrova (bura, jugo, maestral…) |
 | Nacionalni parkovi, parkovi prirode, rezervati | **data.gov.hr**: Zaštićena područja RH (Bioportal) | upozorenje na pravila sidrenja |
 | Oznake podvodne opasnosti | **data.gov.hr**: Plovput, Registar objekata sigurnosti plovidbe | upozorenje unutar 400 m |
 | Natura 2000 | **data.gov.hr**: Ekološka mreža Natura 2000 (Bioportal) | informativno |

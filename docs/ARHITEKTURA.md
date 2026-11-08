@@ -83,7 +83,7 @@ sequenceDiagram
   A->>E: findSpots()
   E->>N: geokodiraj (ako nema lat/lon)
   par
-    E->>O: vjetar, udari 12 h, valovi
+    E->>O: vjetar i udari 24 h po satima, valovi
   and
     E->>B: ~31 profil dubine (redovi mreže, 8 paralelno)
   end
@@ -102,9 +102,9 @@ Ocjena je pravilo s bodovima (0–100). Nije strojno učenje, pa je svaki rezult
 | Dno | EMODnet Geology | Početna ocjena: pijesak 100, mulj i miješano 82, šljunak 55, stijene 20 |
 | Morska trava | EMODnet Seabed Habitats | Kartirana livada → **„Ne sidri ovdje“** (ocjena najviše 10). Infralitoral bez karte → −8 i upozorenje |
 | Dubina | EMODnet Bathymetry | <2 m blokira; 2–3 m −12; 15–25 m −22; 25–35 m −35; >35 m blokira. Bez izmjere koristi se izglađena procjena (označena s ≈) |
-| Vjetar | Open-Meteo | Udari ≥20 kn ili ≥25 kn u idućih 12 h → −12; ≥30/35 kn → −30 |
-| Valovi | Open-Meteo Marine | ≥0,8 m −5; ≥1,5 m −15 |
-| Zaklon | Profili dubine u 8 smjerova, 2 km | Kopno unutar 1,5 km = zaklon s te strane. Otvoreno prema najjačem vjetru idućih 12 h: −20 (udari ≥15 kn) ili −30 (≥25 kn) |
+| Vjetar | Open-Meteo, 24 h po satima | Udari ≥20 čv ili ≥25 čv u idućih 24 h → −12 (u zaklonu −5); ≥30/35 čv → −30 (u zaklonu −10) |
+| Valovi | Open-Meteo Marine | ≥0,8 m −5; ≥1,5 m −15; bez kazne ako je uvala zaklonjena od smjera vjetra |
+| Zaklon | Profili dubine u 8 smjerova, 2 km | Kopno unutar 1,5 km = zaklon s te strane. Otvoreno prema najjačem vjetru idućih 24 h: −20 (udari ≥15 čv) ili −30 (≥25 čv); otvoreno prema olujnom vjetru (≥34 čv) → **„Ne sidri ovdje“** |
 | Zaštićeno područje | Zaštićena područja RH (data.gov.hr) | Nacionalni park −10, posebni/strogi rezervat −15, park prirode −5, ostalo 0; uvijek s pravilima koja treba provjeriti |
 | Oznaka opasnosti | Plovput (data.gov.hr) | Oznaka podvodne opasnosti unutar 400 m → −8 i upozorenje s udaljenošću i smjerom |
 | Natura 2000 | Natura 2000 (data.gov.hr) | Samo informacija, bez bodova |
@@ -114,6 +114,8 @@ Ocjena je pravilo s bodovima (0–100). Nije strojno učenje, pa je svaki rezult
 | Krug okretanja (neobavezno) | duljina broda + zrake zaklona | Vodoravni dio lanca + duljina broda veći od udaljenosti do kopna → −10 |
 
 Ako korisnik upiše brod, pretraga traži dubine od gaz + 1,5 m do lanac / 4 − 1,5 m (najviše 18 m). Podaci o brodu spremaju se samo u pregledniku korisnika (`localStorage`). GPS položaj koristi se samo za središte pretrage te za udaljenost i smjer do sidrišta, a server ga ne sprema.
+
+**Način rada za loše vrijeme.** Kad udari u idućih 24 h dosegnu 25 čv (jak vjetar) ili 34 čv (olujni), odgovor nosi upozorenje (`alert`: vjetar, smjer, jačina, sat). Pretraga tada vraća samo mjesta s kopnom unutar 1,5 km s barem dvije od tri strane iz kojih vjetar dolazi. Ako takvih nema u zadanom krugu, krug se jednom proširuje na 7 km, a ako ih ni tada nema, savjetuje se luka ili marina. Sučelje prikazuje upozorenje i udare po 3 sata za idućih 24 h. Za testiranje i demonstraciju postoji simulirana prognoza (`?sim=bura` ili `?sim=jugo`), jasno označena u odgovoru i u sučelju.
 
 Presuda: ≥70 „Dobro mjesto“, 45–69 „Sidri uz oprez“, <45 „Loše mjesto“, a blokada daje „Ne sidri ovdje“.
 
@@ -136,7 +138,7 @@ Svi korišteni skupovi podataka, njihovi izdavatelji i poveznice na izvore. **Tr
 | Seabed substrate 1:250k i 1:1M (Folk) | EMODnet Geology (EU, GTK) | [emodnet.ec.europa.eu/en/geology](https://emodnet.ec.europa.eu/en/geology) · [ArcGIS REST](https://gtkdata.gtk.fi/arcgis/rest/services/EMODnet/EMODnet_Geology/MapServer) | preuzeto | CC BY 4.0 | Vrsta dna i koliko sidro drži |
 | Seagrass cover 2025, Art. 17 stanište 1120 (Posidonia), EUSeaMap 2025 biološke zone | EMODnet Seabed Habitats (EU); izvorni podaci UNEP-WCMC i države članice | [emodnet.ec.europa.eu/en/seabed-habitats](https://emodnet.ec.europa.eu/en/seabed-habitats) · [WFS](https://ows.emodnet-seabedhabitats.eu/geoserver/emodnet_view/wfs?service=WFS&request=GetCapabilities) | preuzeto | CC BY 4.0, uz navođenje izvornih nositelja | Livade posidonije (zabrana) i plitko dno gdje može rasti |
 | Digital Terrain Model – dubina i profili | EMODnet Bathymetry (EU) | [emodnet.ec.europa.eu/en/bathymetry](https://emodnet.ec.europa.eu/en/bathymetry) · [REST](https://rest.emodnet-bathymetry.eu) · [WMS](https://ows.emodnet-bathymetry.eu/wms) | uživo | CC BY 4.0 | Dubina, zaklon u 8 smjerova, sjenčanje karte |
-| Prognoza vjetra i valova | Open-Meteo (modeli nacionalnih meteoroloških službi) | [open-meteo.com](https://open-meteo.com/en/docs/marine-weather-api) · [licenca](https://open-meteo.com/en/licence) | uživo | Podaci CC BY 4.0; besplatni API za nekomercijalnu uporabu | Vjetar, udari idućih 12 h, valovi |
+| Prognoza vjetra i valova | Open-Meteo (modeli nacionalnih meteoroloških službi) | [open-meteo.com](https://open-meteo.com/en/docs/marine-weather-api) · [licenca](https://open-meteo.com/en/licence) | uživo | Podaci CC BY 4.0; besplatni API za nekomercijalnu uporabu | Vjetar i udari idućih 24 h, upozorenje na jak vjetar, valovi |
 | Nominatim | OpenStreetMap Foundation | [API](https://nominatim.org/release-docs/latest/api/Search/) · [pravila](https://operations.osmfoundation.org/policies/nominatim/) | uživo | ODbL; najviše 1 zahtjev u sekundi | Naziv mjesta u koordinate |
 | Podloga karte | OpenStreetMap, OpenSeaMap | [osm.org/copyright](https://www.openstreetmap.org/copyright) · [openseamap.org](https://www.openseamap.org) | XYZ pločice | ODbL / CC BY-SA | Karta i pomorski simboli |
 
