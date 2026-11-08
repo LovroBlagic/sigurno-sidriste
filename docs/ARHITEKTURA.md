@@ -14,7 +14,7 @@ flowchart LR
 
   subgraph Vercel["Sigurno sidrište (Vercel)"]
     WEB["Statične datoteke<br/>web/ (Leaflet sučelje)"]
-    LAY[("Pripremljeni slojevi<br/>web/data/*.geojson<br/>~1,3 MB")]
+    LAY[("Pripremljeni slojevi<br/>web/data/*.geojson<br/>~1,6 MB")]
     API["REST API<br/>/api/find · /api/check · /api/geocode"]
     MCP["MCP server<br/>/mcp (Streamable HTTP)"]
     ENG["Mehanizam ocjene<br/>web/core.js<br/>predmemorija + ograničenje poziva"]
@@ -58,13 +58,15 @@ flowchart LR
   G[EMODnet Geology<br/>ArcGIS REST, sloj 2 i 3] --> D
   H[EMODnet Seabed Habitats<br/>GeoServer WFS] --> D
   B[Bioportal<br/>INSPIRE WFS] --> D
+  PV[Plovput<br/>WFS] --> D
   D[download_data.py<br/>data/ ~31 MB] --> P[build_layers.py<br/>+ mapshaper]
-  P -->|izrez na more,<br/>spajanje 1:250k + 1:1M,<br/>pojednostavljenje| L[(web/data/<br/>5 slojeva, ~1,3 MB)]
+  P -->|izrez na more,<br/>spajanje 1:250k + 1:1M,<br/>pojednostavljenje| L[(web/data/<br/>7 slojeva, ~1,6 MB)]
 ```
 
 1. **Dno:** karta 1:250k je glavna. Gdje ona ne pokriva (unutarnje uvale), rupe popunjava karta 1:1M. Folk-5 klase se prevode u ocjenu držanja 0–3.
-2. **Morska trava, posidonija, biološke zone i Natura 2000** izrezuju se na hrvatsko more.
-3. Rezultat je 5 GeoJSON datoteka koje se poslužuju statično i učitavaju u memoriju funkcije.
+2. **Morska trava, posidonija, biološke zone, Natura 2000 i zaštićena područja** izrezuju se na hrvatsko more. Zadržavaju se samo zaštićena područja kojima je barem 10 % površine u moru.
+3. **Plovputove oznake**: zadržavaju se aktivne, a oznake podvodne opasnosti (kardinalne, usamljena opasnost, nazivi „Pličina“, „Sika“, „Hrid“…) posebno se označavaju.
+4. Rezultat je 7 GeoJSON datoteka koje se poslužuju statično i učitavaju u memoriju funkcije.
 
 ### Zahtjev „Pronađi sidrište“
 
@@ -103,24 +105,42 @@ Ocjena je pravilo s bodovima (0–100). Nije strojno učenje, pa je svaki rezult
 | Vjetar | Open-Meteo | Udari ≥20 kn ili ≥25 kn u idućih 12 h → −12; ≥30/35 kn → −30 |
 | Valovi | Open-Meteo Marine | ≥0,8 m −5; ≥1,5 m −15 |
 | Zaklon | Profili dubine u 8 smjerova, 2 km | Kopno unutar 1,5 km = zaklon s te strane. Otvoreno prema najjačem vjetru idućih 12 h: −20 (udari ≥15 kn) ili −30 (≥25 kn) |
-| Natura 2000 | Bioportal | Samo informacija, bez bodova |
+| Zaštićeno područje | Zaštićena područja RH (data.gov.hr) | Nacionalni park −10, posebni/strogi rezervat −15, park prirode −5, ostalo 0; uvijek s pravilima koja treba provjeriti |
+| Oznaka opasnosti | Plovput (data.gov.hr) | Oznaka podvodne opasnosti unutar 400 m → −8 i upozorenje s udaljenošću i smjerom |
+| Natura 2000 | Natura 2000 (data.gov.hr) | Samo informacija, bez bodova |
 | Lanac | izračun | (dubina + 1,5 m) × 5, ili × 7 kad puše |
 
 Presuda: ≥70 „Dobro mjesto“, 45–69 „Sidri uz oprez“, <45 „Loše mjesto“, a blokada daje „Ne sidri ovdje“.
 
 ## 4. Izvori podataka i licence
 
-| Izvor | Nositelj | Pristup | Licenca / uvjeti |
-|---|---|---|---|
-| EMODnet Geology – sediment dna 1:250k i 1:1M | EU (EMODnet, GTK) | ArcGIS REST, preuzeto | CC BY 4.0 |
-| EMODnet Seabed Habitats – morska trava 2025, Art. 17 stanište 1120, EUSeaMap 2025 | EU (EMODnet); izvorni podaci UNEP-WCMC, države članice | OGC WFS, preuzeto | CC BY 4.0, uz navođenje izvornih nositelja |
-| EMODnet Bathymetry – dubina i profili | EU (EMODnet) | REST, uživo; WMS za sjenčanje karte | CC BY 4.0 |
-| Natura 2000 – područja za ptice | Ministarstvo zaštite okoliša i zelene tranzicije (Bioportal) | INSPIRE WFS, preuzeto | Javni INSPIRE servis; uvjete ponovne uporabe treba potvrditi s nositeljem |
-| Vjetar, udari, valovi | Open-Meteo (modeli nacionalnih meteoroloških službi) | REST, uživo | Podaci CC BY 4.0; besplatni API samo za nekomercijalnu uporabu |
-| Geokodiranje | OpenStreetMap Nominatim | REST, uživo | ODbL; najviše 1 zahtjev u sekundi, obavezan User-Agent |
-| Podloga karte | OpenStreetMap, OpenSeaMap | XYZ pločice | ODbL / CC BY-SA; pravila korištenja OSM pločica |
+Svi korišteni skupovi podataka, njihovi izdavatelji i poveznice na izvore. **Tri skupa objavljena su na Portalu otvorenih podataka (data.gov.hr).**
 
-Atribucija izvora prikazana je u aplikaciji (na karti i ispod detalja svakog mjesta) i u README-u. Korištene biblioteke: Leaflet (BSD-2-Clause), Turf (MIT), MCP SDK (MIT), zod (MIT).
+### S Portala otvorenih podataka (data.gov.hr)
+
+| Skup podataka | Izdavatelj | Portal | Servis (pristup) | Licenca | Čemu služi |
+|---|---|---|---|---|---|
+| Zaštićena područja Republike Hrvatske – INSPIRE | Ministarstvo zaštite okoliša i zelene tranzicije (Bioportal); katalogizira Državna geodetska uprava | [data.gov.hr](https://data.gov.hr/ckan/dataset/zatiena-podruja-republike-hrvatske-inspire) | [WFS `ps1:ProtectedSite`](https://services.bioportal.hr/inspire/geos1/ps/wfs?service=WFS&version=2.0.0&request=GetCapabilities), preuzeto | Javni INSPIRE servis, „nema ograničenja“ pristupa (GetCapabilities) | Nacionalni parkovi, parkovi prirode i rezervati u moru: upozorenje na pravila sidrenja |
+| Ekološka mreža Natura 2000 Republike Hrvatske – INSPIRE | isto | [data.gov.hr](https://data.gov.hr/ckan/dataset/ekoloka-mrea-natura-2000-republike-hrvatske-inspire) | [WFS `ps2:ProtectedSite`](https://services.bioportal.hr/inspire/geos2/ps/wfs?service=WFS&version=2.0.0&request=GetCapabilities), preuzeto | isto | Područja očuvanja za ptice: informacija u ocjeni |
+| Registar objekata sigurnosti plovidbe | Plovput d.o.o. Split | [data.gov.hr](https://data.gov.hr/ckan/dataset/registar-objekata-sigurnosti-plovidbe) | [WFS `RospObjekti`](https://rosp.plovput.hr/plovput_ows/ows?service=wfs&request=GetCapabilities), preuzeto | Otvorena dozvola (OD) | Svjetionici i oznake; upozorenje kad je oznaka podvodne opasnosti unutar 400 m |
+
+### Europski i drugi javni izvori
+
+| Skup podataka | Izdavatelj | Izvor | Pristup | Licenca | Čemu služi |
+|---|---|---|---|---|---|
+| Seabed substrate 1:250k i 1:1M (Folk) | EMODnet Geology (EU, GTK) | [emodnet.ec.europa.eu/en/geology](https://emodnet.ec.europa.eu/en/geology) · [ArcGIS REST](https://gtkdata.gtk.fi/arcgis/rest/services/EMODnet/EMODnet_Geology/MapServer) | preuzeto | CC BY 4.0 | Vrsta dna i koliko sidro drži |
+| Seagrass cover 2025, Art. 17 stanište 1120 (Posidonia), EUSeaMap 2025 biološke zone | EMODnet Seabed Habitats (EU); izvorni podaci UNEP-WCMC i države članice | [emodnet.ec.europa.eu/en/seabed-habitats](https://emodnet.ec.europa.eu/en/seabed-habitats) · [WFS](https://ows.emodnet-seabedhabitats.eu/geoserver/emodnet_view/wfs?service=WFS&request=GetCapabilities) | preuzeto | CC BY 4.0, uz navođenje izvornih nositelja | Livade posidonije (zabrana) i plitko dno gdje može rasti |
+| Digital Terrain Model – dubina i profili | EMODnet Bathymetry (EU) | [emodnet.ec.europa.eu/en/bathymetry](https://emodnet.ec.europa.eu/en/bathymetry) · [REST](https://rest.emodnet-bathymetry.eu) · [WMS](https://ows.emodnet-bathymetry.eu/wms) | uživo | CC BY 4.0 | Dubina, zaklon u 8 smjerova, sjenčanje karte |
+| Prognoza vjetra i valova | Open-Meteo (modeli nacionalnih meteoroloških službi) | [open-meteo.com](https://open-meteo.com/en/docs/marine-weather-api) · [licenca](https://open-meteo.com/en/licence) | uživo | Podaci CC BY 4.0; besplatni API za nekomercijalnu uporabu | Vjetar, udari idućih 12 h, valovi |
+| Nominatim | OpenStreetMap Foundation | [API](https://nominatim.org/release-docs/latest/api/Search/) · [pravila](https://operations.osmfoundation.org/policies/nominatim/) | uživo | ODbL; najviše 1 zahtjev u sekundi | Naziv mjesta u koordinate |
+| Podloga karte | OpenStreetMap, OpenSeaMap | [osm.org/copyright](https://www.openstreetmap.org/copyright) · [openseamap.org](https://www.openseamap.org) | XYZ pločice | ODbL / CC BY-SA | Karta i pomorski simboli |
+
+Atribucija izvora prikazana je u aplikaciji (na karti i ispod detalja svakog mjesta) i u README-u.
+
+### Softver i alati
+
+- Biblioteke otvorenog koda: Leaflet (BSD-2-Clause), Turf (MIT), Model Context Protocol SDK (MIT), zod (MIT), mapshaper (MPL-2.0), Playwright (Apache-2.0, samo za snimanje videa).
+- **Korištenje umjetne inteligencije u izradi:** dio koda, dokumentacije i skripte za video izrađen je uz pomoć AI asistenta za programiranje **Claude Code** (Anthropic, model Claude Opus). Tim je odredio ideju, zahtjeve i izbor podataka, pregledao i testirao rezultate te odgovara za rješenje. Naracija u videu sintetizirana je glasom „Lana“ iz macOS-a.
 
 ## 5. Standardi i interoperabilnost
 
@@ -157,7 +177,8 @@ Zahvaljujući REST API-ju i OpenAPI opisu, rješenje se bez promjena može ugrad
 
 **Pravni**
 - Atribucija izvora prema CC BY 4.0, ODbL i CC BY-SA (već prikazana).
-- Potvrda uvjeta ponovne uporabe Natura 2000 podataka s Bioportala.
+- Potvrda uvjeta ponovne uporabe podataka s Bioportala (zaštićena područja, Natura 2000): na data.gov.hr nemaju navedenu licencu, a servis navodi da nema ograničenja pristupa.
+- Navođenje korištenja AI alata u izradi (vidi „Softver i alati“).
 - Komercijalna uporaba zahtijeva plaćeni Open-Meteo plan i drugi geokoder.
 - Izjava o odricanju odgovornosti: aplikacija je pomoć pri planiranju, ne zamjenjuje službene pomorske karte, dubinomjer ni lokalna pravila.
 - Privatnost: aplikacija ne traži prijavu, ne sprema osobne podatke ni lokacije korisnika i ne koristi kolačiće za praćenje.
@@ -168,4 +189,5 @@ Zahvaljujući REST API-ju i OpenAPI opisu, rješenje se bez promjena može ugrad
 - Prva pretraga u novom području traje 8–15 s (dubine se mjere uživo); ponovljena je brza dok je instanca aktivna.
 - Ovisnost o dostupnosti EMODnet, Open-Meteo i Nominatim servisa; pozivi su ograničeni (6 istodobnih po servisu), ponavljaju se do 3 puta i pamte 15–30 min.
 - Karte dna (1:250k, 1:1M) i posidonije su grube i nepotpune za male uvale, pa aplikacija uvijek savjetuje provjeru dna i dubinomjera.
-- Lokalne zabrane sidrenja (npr. u nacionalnim parkovima) još nisu uključene.
+- Aplikacija prepoznaje nacionalne parkove, parkove prirode i rezervate, ali ne zna točne zone i pravila sidrenja unutar njih (to bi trebali dati javne ustanove parkova).
+- Kategorija „park prirode“ u INSPIRE podacima nije odvojena od značajnog krajobraza, pa su Telašćica i Lastovsko otočje označeni ručno.

@@ -16,8 +16,8 @@ const layer = async (name) => {
   return r.json();
 };
 const engine = {
-  ready: Promise.all(["substrate", "seagrass", "natura2000"].map(layer))
-    .then(([substrate, seagrass, natura2000]) => ({ substrate, seagrass, natura2000 })),
+  ready: Promise.all(["substrate", "seagrass", "natura2000", "protected", "navmarks"].map(layer))
+    .then(([substrate, seagrass, natura2000, protectedAreas, navmarks]) => ({ substrate, seagrass, natura2000, protectedAreas, navmarks })),
   checkSpot: (lat, lon) => api("check", { lat, lon }),
   findSpots: (lat, lon, { radiusKm }) => api("find", { lat, lon, r: radiusKm }),
   geocode: (q) => api("geocode", { q }).catch((e) => (/pronaći/.test(e.message) ? null : Promise.reject(e))),
@@ -43,6 +43,7 @@ state.layers.depth = L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
 });
 map.createPane("grass").style.zIndex = 420;
 map.createPane("natura").style.zIndex = 410;
+map.createPane("marks").style.zIndex = 640;
 state.results.addTo(map);
 
 engine.ready.then((d) => {
@@ -55,6 +56,16 @@ engine.ready.then((d) => {
   });
   state.layers.natura = L.geoJSON(d.natura2000, {
     pane: "natura", interactive: false, style: () => ({ color: "#7b2cbf", weight: 1.2, dashArray: "4 4", fillOpacity: 0.06 }),
+  });
+  state.layers.protected = L.geoJSON(d.protectedAreas, {
+    pane: "natura", interactive: false, style: () => ({ color: "#1b7f4c", weight: 1.6, dashArray: "6 4", fillColor: "#1b7f4c", fillOpacity: 0.07 }),
+  });
+  const marks = L.canvas({ pane: "marks" });
+  state.layers.navmarks = L.geoJSON(d.navmarks, {
+    pointToLayer: (f, ll) => L.circleMarker(ll, {
+      renderer: marks, bubblingMouseEvents: false, radius: f.properties.danger ? 5 : 3.5, weight: f.properties.danger ? 2 : 1,
+      color: f.properties.danger ? "#111" : "#5b4a00", fillColor: f.properties.danger ? "#f2c14e" : "#fff", fillOpacity: 1,
+    }).bindPopup(`<b>${esc(f.properties.name)}</b>${f.properties.danger ? "<br><i>oznaka podvodne opasnosti</i>" : ""}${f.properties.desc ? `<br><small>${esc(f.properties.desc)}</small>` : ""}<br><small>Izvor: Plovput</small>`),
   });
   syncLayers();
 }).catch((e) => toast(`Slojevi karte se nisu učitali: ${e.message}`));
@@ -175,7 +186,7 @@ function showSpot(s, fromList) {
       <button class="btn ghost" type="button" id="share">Podijeli</button>
       <a class="btn ghost" href="https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}" target="_blank" rel="noopener">Navigacija</a>
     </div>
-    <p class="sources">Dno: EMODnet Geology · Morska trava: EMODnet Seabed Habitats, UNEP-WCMC, HAOP · Dubina: EMODnet Bathymetry · Natura 2000: Bioportal · Vrijeme: Open-Meteo · Mjesta: OpenStreetMap.
+    <p class="sources">Dno: EMODnet Geology · Morska trava: EMODnet Seabed Habitats, UNEP-WCMC, HAOP · Dubina: EMODnet Bathymetry · Zaštićena područja i Natura 2000: Bioportal · Oznake: Plovput (data.gov.hr) · Vrijeme: Open-Meteo · Mjesta: OpenStreetMap.
     Pomoć pri planiranju, ne navigacijska karta - uvijek provjeri službenu kartu, dubinomjer i <a href="https://meteo.hr/prognoze.php?section=prognoze_specp&param=jadran" target="_blank" rel="noopener">pomorsku prognozu DHMZ-a</a>.</p>`;
   if (fromList) document.getElementById("tolist").onclick = () => renderFind(state.lastFind.res, state.lastFind.label);
   else wireBack();

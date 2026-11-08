@@ -12,6 +12,9 @@ Sources (credit these in your app):
   - EMODnet Seabed Habitats - Seagrass cover polygons (2025)
   - EMODnet Seabed Habitats - EUSeaMap 2025 biological zones
   - Bioportal (HR, INSPIRE WFS) - Natura 2000 bird areas (ps2:ProtectedSite)
+  - Bioportal (HR, INSPIRE WFS) - Protected areas: national parks, nature parks, reserves (ps1:ProtectedSite)
+  - Plovput (HR) - Register of aids to navigation (lighthouses, buoys, danger marks)
+  The last three are listed on the Croatian Open Data Portal, data.gov.hr.
 """
 
 import json
@@ -114,6 +117,28 @@ def natura():
     save("natura2000.geojson", data)
 
 
+# 6) Protected areas (national parks, nature parks, reserves) - Bioportal INSPIRE WFS, data.gov.hr
+def protected():
+    print("Protected areas (Bioportal)...")
+    data = get_json("https://services.bioportal.hr/inspire/geos1/ps/wfs", {
+        "service": "WFS", "version": "2.0.0", "request": "GetFeature",
+        "typeNames": "ps1:ProtectedSite",
+        "outputFormat": "application/json", "srsName": "EPSG:4326",
+    })
+    save("protected_areas.geojson", data)
+
+
+# 7) Aids to navigation - Plovput ROSP WFS, data.gov.hr (Otvorena dozvola)
+def navmarks():
+    print("Aids to navigation (Plovput)...")
+    data = get_json("https://rosp.plovput.hr/plovput_ows/ows", {
+        "service": "WFS", "version": "2.0.0", "request": "GetFeature",
+        "typeNames": "plovput_ows:RospObjekti",
+        "outputFormat": "application/json", "srsName": "EPSG:4326",
+    })
+    save("plovput_rosp.geojson", data)
+
+
 JOBS = [
     ("substrate", substrate),
     ("substrate_1m", lambda: substrate(3, "substrate_1m.geojson", "1:1M")),
@@ -127,6 +152,8 @@ JOBS = [
                              "biological_zones.geojson",
                              "EUSeaMap 2025 biological zones (200m simplified)")),
     ("natura", natura),
+    ("protected", protected),
+    ("navmarks", navmarks),
 ]
 
 if __name__ == "__main__":

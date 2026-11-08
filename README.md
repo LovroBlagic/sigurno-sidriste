@@ -19,7 +19,9 @@ Isto znanje dostupno je i AI asistentima preko **MCP servera**, pa nautičar mo�
 | Dubina | EMODnet Bathymetry (uživo) | 3–15 m idealno, >35 m preduboko |
 | Zaklon | EMODnet profili dubine u 8 smjerova (uživo) | kopno unutar 1,5 km u smjeru najjačeg vjetra idućih 12 h |
 | Vjetar, udari, valovi | Open-Meteo (uživo) | hrvatski nazivi vjetrova (bura, jugo, maestral…) |
-| Zaštićena područja | Bioportal Natura 2000 (ptice) | informativno |
+| Nacionalni parkovi, parkovi prirode, rezervati | **data.gov.hr**: Zaštićena područja RH (Bioportal) | upozorenje na pravila sidrenja |
+| Oznake podvodne opasnosti | **data.gov.hr**: Plovput, Registar objekata sigurnosti plovidbe | upozorenje unutar 400 m |
+| Natura 2000 | **data.gov.hr**: Ekološka mreža Natura 2000 (Bioportal) | informativno |
 | Mjesta | OpenStreetMap Nominatim | "Hvar" → koordinate |
 
 Pomoć pri planiranju, ne navigacijska karta. Licence i uvjeti svakog izvora: [docs/ARHITEKTURA.md](docs/ARHITEKTURA.md#4-izvori-podataka-i-licence).
@@ -30,7 +32,7 @@ Pomoć pri planiranju, ne navigacijska karta. Licence i uvjeti svakog izvora: [d
 flowchart LR
   K[Nautičar / AI asistent] --> A["/api/find · /api/check · /mcp"]
   A --> E[core.js<br/>ocjena 0–100]
-  E --> S[(Slojevi: dno, morska trava,<br/>Natura 2000)]
+  E --> S[(Slojevi: dno, morska trava,<br/>zaštićena područja, Plovput)]
   E --> L[Uživo: EMODnet dubina,<br/>Open-Meteo, Nominatim]
 ```
 
@@ -86,13 +88,17 @@ Vercel projekt `sigurno-sidriste` povezan je s GitHub repozitorijem: svaki push 
 - `server/handlers.js` - API i MCP rukovatelji (ograničavaju i pamte pozive prema EMODnetu)
 - `server/index.js` - lokalni server: web + `/api/*` + `/mcp` · `api/*.js` - iste rute kao Vercel funkcije
 - `mcp/tools.js` - definicije MCP alata · `mcp/stdio.js` - stdio ulaz
-- `scripts/download_data.py`, `scripts/build_layers.py` - priprema podataka (~31 MB → ~1,3 MB)
+- `scripts/download_data.py`, `scripts/build_layers.py` - priprema podataka (~42 MB → ~1,6 MB)
 - `web/openapi.json` - OpenAPI opis API-ja · `docs/ARHITEKTURA.md` - arhitektura, izvori, licence, preduvjeti
 
 ## Tim
 
 Lovro Blagić, Frane Andrić, Fabijan Pitlović, Matej Ban
 
+## Korištenje AI alata
+
+Dio koda i dokumentacije izrađen je uz pomoć AI asistenta Claude Code (Anthropic). Tim je odredio zahtjeve i podatke te pregledao i testirao rezultat. Detalji: [docs/ARHITEKTURA.md](docs/ARHITEKTURA.md#softver-i-alati).
+
 ## Licenca
 
-Kod: [MIT](LICENSE). Podaci zadržavaju licence svojih izvora (EMODnet CC BY 4.0, OpenStreetMap ODbL, Open-Meteo CC BY 4.0, Bioportal) - vidi [docs/ARHITEKTURA.md](docs/ARHITEKTURA.md#4-izvori-podataka-i-licence).
+Kod: [MIT](LICENSE). Podaci zadržavaju licence svojih izvora (EMODnet CC BY 4.0, OpenStreetMap ODbL, Open-Meteo CC BY 4.0, Plovput Otvorena dozvola, Bioportal) - vidi [docs/ARHITEKTURA.md](docs/ARHITEKTURA.md#4-izvori-podataka-i-licence).

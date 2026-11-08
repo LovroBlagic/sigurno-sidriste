@@ -3,7 +3,7 @@
   "info": {
     "title": "Sigurno sidrište API",
     "version": "1.0.0",
-    "description": "Ocjena mjesta za sidrenje na hrvatskom Jadranu iz otvorenih podataka (EMODnet, Bioportal, Open-Meteo, OpenStreetMap). Svi tekstovi u odgovorima su na hrvatskom. Pomoć pri planiranju, ne navigacijska karta.\n\nIsti alati dostupni su AI asistentima preko MCP-a (Streamable HTTP, bez stanja) na /mcp: `pronadi_sidriste` i `provjeri_tocku`.",
+    "description": "Ocjena mjesta za sidrenje na hrvatskom Jadranu iz otvorenih podataka (EMODnet, data.gov.hr: Bioportal i Plovput, Open-Meteo, OpenStreetMap). Svi tekstovi u odgovorima su na hrvatskom. Pomoć pri planiranju, ne navigacijska karta.\n\nIsti alati dostupni su AI asistentima preko MCP-a (Streamable HTTP, bez stanja) na /mcp: `pronadi_sidriste` i `provjeri_tocku`.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -195,7 +195,9 @@
                 "seagrass",
                 "posidonia_grid",
                 "biozones",
-                "natura2000"
+                "natura2000",
+                "protected",
+                "navmarks"
               ]
             }
           }
@@ -352,7 +354,9 @@
               "forecast",
               "waves",
               "shelter",
-              "natura"
+              "natura",
+              "protected",
+              "hazard"
             ]
           },
           "k": {

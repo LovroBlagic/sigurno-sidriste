@@ -9,7 +9,7 @@
  */
 import * as turf from "@turf/turf";
 
-export const LAYERS = ["substrate", "seagrass", "posidonia_grid", "biozones", "natura2000"];
+export const LAYERS = ["substrate", "seagrass", "posidonia_grid", "biozones", "natura2000", "protected", "navmarks"];
 
 export const HOLD = {
   3: { color: "#f2c14e", score: 100, word: "odlično" },
@@ -34,6 +34,17 @@ export const windOf = (deg) => WINDS[Math.round((((deg % 360) + 360) % 360) / 45
 const UA = "safe-anchor-hackathon/1.0";
 const SHELTER_KM = 1.5;   // kopno bliže od ovoga u smjeru vjetra = zaklon
 const RAY_KM = 2.0;
+const HAZARD_M = 400;     // oznaka podvodne opasnosti bliže od ovoga = upozorenje
+
+// Pravila po vrsti zaštićenog područja (Zaštićena područja RH, Bioportal / data.gov.hr)
+const PROTECTED = {
+  np: { penalty: 10, d: "Sidrenje je dopušteno samo gdje to odredi javna ustanova parka, obično uz plaćenu ulaznicu. Provjeri pravila parka prije dolaska." },
+  park: { penalty: 5, d: "Plaća se ulaznica, a vrijede i pravila parka o sidrenju i zonama zaštite." },
+  reserve: { penalty: 15, d: "Sidrenje i ribolov ovdje mogu biti zabranjeni ili ograničeni. Provjeri pravila prije dolaska." },
+  landscape: { penalty: 0, d: "Zaštićena priroda - sidri obzirno, samo na pijesku. Mogu vrijediti lokalna pravila." },
+  monument: { penalty: 0, d: "Zaštićena priroda - sidri obzirno, samo na pijesku. Mogu vrijediti lokalna pravila." },
+  other: { penalty: 0, d: "Zaštićena priroda - sidri obzirno. Mogu vrijediti lokalna pravila." },
+};
 
 /* ---------- mala pomagala ---------- */
 function indexed(fc) {
@@ -47,6 +58,21 @@ function hits(fc, lon, lat) {
   return fc.features.filter((f) =>
     lon >= f.bbox[0] && lon <= f.bbox[2] && lat >= f.bbox[1] && lat <= f.bbox[3] &&
     turf.booleanPointInPolygon(pt, f));
+}
+
+// Najbliža Plovputova oznaka podvodne opasnosti unutar HAZARD_M
+function nearestHazard(fc, lon, lat) {
+  if (!fc) return null;
+  const dLat = HAZARD_M / 111320, dLon = dLat / Math.cos((lat * Math.PI) / 180);
+  let best = null;
+  for (const f of fc.features) {
+    if (!f.properties.danger) continue;
+    const [x, y] = f.geometry.coordinates;
+    if (Math.abs(x - lon) > dLon || Math.abs(y - lat) > dLat) continue;
+    const m = turf.distance([lon, lat], [x, y]) * 1000;
+    if (m <= HAZARD_M && (!best || m < best.m)) best = { m, bearing: turf.bearing([lon, lat], [x, y]), p: f.properties };
+  }
+  return best;
 }
 
 // Karta 1:250k ne dopire uvijek do obale - traži do ~1 km oko točke
@@ -289,9 +315,27 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       facts.push({ id: "shelter", k: "Zaklon", v: `${from.length}/8 strana`, lvl, d: `${d ? d + " " : ""}Kopno unutar ${SHELTER_KM} km - ${head}.` });
     }
 
+    if (ctx.protected.length) {
+      // najstroža kategorija ako se područja preklapaju
+      const order = ["np", "reserve", "park", "landscape", "monument", "other"];
+      const p = ctx.protected.map((f) => f.properties).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))[0];
+      const rule = PROTECTED[p.kind] || PROTECTED.other;
+      score -= rule.penalty;
+      facts.push({ id: "protected", k: "Zaštićeno područje", v: `${p.label} ${p.name}`, lvl: rule.penalty ? "ok" : "good", d: rule.d });
+    }
+
+    if (ctx.hazard) {
+      const h = ctx.hazard;
+      score -= 8;
+      facts.push({
+        id: "hazard", k: "Oznaka opasnosti", v: `${h.p.name}, ${Math.round(h.m / 10) * 10} m ${windOf(h.bearing).side}`, lvl: "ok",
+        d: `Plovput ovdje označava podvodnu opasnost (pličinu ili hrid)${h.p.desc ? `: ${h.p.desc.toLowerCase()}` : ""}. Prilazi polako i drži se podalje od oznake.`,
+      });
+    }
+
     if (ctx.natura.length) {
       const n = ctx.natura[0].properties;
-      facts.push({ id: "natura", k: "Zaštićeno područje", v: n.code, lvl: "ok", d: `Natura 2000 područje za ptice "${n.name}". Budi tih, ne iskrcavaj se blizu gnijezda; mogu vrijediti lokalna pravila sidrenja.` });
+      facts.push({ id: "natura", k: "Natura 2000", v: n.code, lvl: "ok", d: `Natura 2000 područje za ptice "${n.name}". Budi tih, ne iskrcavaj se blizu gnijezda; mogu vrijediti lokalna pravila sidrenja.` });
     }
 
     let chain = null;
@@ -327,6 +371,8 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       posGrid: hits(data.posidonia_grid, lon, lat).length > 0,
       infralittoral: hits(data.biozones, lon, lat).some((f) => f.properties.zone === "Infralittoral"),
       natura: hits(data.natura2000, lon, lat),
+      protected: hits(data.protected, lon, lat),
+      hazard: nearestHazard(data.navmarks, lon, lat),
     };
   }
 
