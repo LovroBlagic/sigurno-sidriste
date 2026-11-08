@@ -1,4 +1,4 @@
-/* Sigurno sidrište - web sučelje. Sva logika je u core.js (dijeli se s MCP serverom). */
+/* eSidro - web sučelje. Sva logika je u core.js (dijeli se s MCP serverom). */
 import { HOLD, windOf, normBoat, depthLabel } from "./core.js";
 
 const GRASS = "#2a9d5c";
@@ -507,7 +507,7 @@ async function share(s) {
   const url = `${location.origin}${location.pathname}#p=${s.lat.toFixed(4)},${s.lon.toFixed(4)}`;
   const text = `${s.title} (${s.score}/100)${s.depth != null ? `, ${depthLabel(s)}` : ""}${s.seabed ? `, ${s.seabed.toLowerCase()}` : ""}`;
   try {
-    if (navigator.share) await navigator.share({ title: "Sigurno sidrište", text, url });
+    if (navigator.share) await navigator.share({ title: "eSidro", text, url });
     else { await navigator.clipboard.writeText(`${text}\n${url}`); toast("Poveznica kopirana"); }
   } catch { /* korisnik odustao */ }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Sigurno sidrište - jedan server za sve:
+/* eSidro - jedan server za sve:
  *   /            web aplikacija (web/)
  *   /api/find    ?lat&lon ili ?q=mjesto  -> najbolja sidrišta u blizini
  *   /api/check   ?lat&lon                -> procjena jedne točke
@@ -43,5 +43,5 @@ http.createServer(async (req, res) => {
     if (!res.headersSent) send(res, 502, { error: e.message });
   }
 }).listen(PORT, () => {
-  console.log(`Sigurno sidrište: http://localhost:${PORT}  ·  MCP: http://localhost:${PORT}/mcp`);
+  console.log(`eSidro: http://localhost:${PORT}  ·  MCP: http://localhost:${PORT}/mcp`);
 });

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Sigurno sidrište - gdje sidriti na hrvatskom Jadranu (web + MCP server)",
+  "description": "eSidro - gdje sidriti na hrvatskom Jadranu (web + MCP server)",
   "scripts": {
     "data": "python3 scripts/download_data.py && python3 scripts/build_layers.py",
     "tiles": "node scripts/build_depth_tiles.mjs",

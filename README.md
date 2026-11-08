@@ -1,4 +1,4 @@
-# Sigurno sidrište
+# eSidro
 
 Gdje sidriti na hrvatskom Jadranu. Upiši mjesto (npr. *Pakleni otoci*), pritisni **Pronađi sidrište u blizini** i dobiješ do 5 najboljih mjesta s dubinom, vrstom dna, zaklonom i duljinom lanca. Ili dodirni more na karti za provjeru jedne točke.
 

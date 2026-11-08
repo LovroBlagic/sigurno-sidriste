@@ -1,4 +1,4 @@
-/* Sigurno sidrište - zajednička logika za web aplikaciju i MCP server.
+/* eSidro - zajednička logika za web aplikaciju i MCP server.
  * Radi i u pregledniku (import map za @turf/turf) i u Nodeu.
  *
  *   const engine = createEngine({ loadJSON });
