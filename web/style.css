@@ -392,3 +392,8 @@ details.more .legend { margin-top: 12px; }
 /* brodovi uživo (AIS) na našoj karti */
 .ais-ship svg { width: 22px; height: 22px; display: block; overflow: visible; }
 .ais-ship path, .ais-ship circle { fill: #c2186b; stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; }
+
+/* legenda dubine sa satelita */
+.sdbd-legend { display: flex; flex-wrap: wrap; gap: 2px; margin: -2px 0 4px 26px; font-size: 11px; }
+.sdbd-legend span { padding: 1px 5px; border-radius: 3px; background: var(--c); color: #111; }
+.sdbd-legend span:last-child { color: #fff; }

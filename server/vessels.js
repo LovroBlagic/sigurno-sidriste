@@ -6,7 +6,7 @@
 const URL_WS = "wss://stream.aisstream.io/v0/stream";
 const ADRIATIC = [[[46.6, 12.0], [41.5, 20.0]]];
 const TYPES = ["PositionReport", "StandardClassBPositionReport", "ExtendedClassBPositionReport", "ShipStaticData", "StaticDataReport"];
-const MAX_AGE = 20 * 60e3; // pozicija starija od 20 min se ne prikazuje
+const MAX_AGE = 60 * 60e3; // pozicija starija od 60 min se ne prikazuje (aisstream je u Hrvatskoj rijedak)
 
 const ships = new Map(); // MMSI -> { mmsi, name, lat, lon, cog, sog, heading, t }
 let live = null;
@@ -43,9 +43,12 @@ function connect(boxes, onClose) {
   return ws;
 }
 
-// Lokalni server: jedna stalna veza, ponovno spajanje nakon prekida
-function ensureLive() {
-  if (live) return;
+// Lokalni server: jedna stalna veza, ponovno spajanje nakon prekida.
+// server/index.js je pokreće odmah pri startu, da pozicije budu skupljene prije prvog uključivanja sloja.
+let liveSince = 0;
+export function ensureLive() {
+  if (live || !hasKey()) return;
+  liveSince ||= Date.now();
   live = connect(ADRIATIC, () => { live = null; setTimeout(ensureLive, 10e3); });
 }
 
@@ -57,7 +60,11 @@ const listen = (box, ms) => new Promise((done) => {
 
 export async function vesselsIn({ s, w, n, e }) {
   if (process.env.VERCEL) await listen([[n, w], [s, e]], 4000);
-  else ensureLive();
+  else {
+    ensureLive();
+    const wait = 5000 - (Date.now() - liveSince); // tek spojeno: pričekaj prve poruke
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  }
   const now = Date.now();
   const out = [];
   for (const v of ships.values()) {

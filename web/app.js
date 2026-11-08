@@ -69,7 +69,7 @@ const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 // EMODnet obala je mreža ~115 m, pa plava dubina zna prijeći na kopno. Iste OSM pločice još jednom IZNAD dubine,
 // s vodom prozirnom (filter #chart-land-mask-fx): kopno uvijek prekriva dubinu, a dubina se vidi samo na moru.
 const landMask = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  minZoom: 11, maxZoom: 19, zIndex: 3, className: "chart-land-mask",
+  minZoom: 11, maxZoom: 19, zIndex: 4, className: "chart-land-mask",
 }).addTo(map);
 
 // Dubina: unaprijed izračunate statične pločice (scripts/build_depth_tiles.mjs), zum 7-12; bliže ih preglednik povećava.
@@ -121,9 +121,9 @@ L.Control.SatToggle = L.Control.extend({
 });
 new L.Control.SatToggle().addTo(map);
 
-const DEFAULT_LAYERS = { substrate: false, seagrass: true, protected: true, navmarks: true, natura: false, seamarks: true, sightings: true, sdb: true, vessels: false };
+const DEFAULT_LAYERS = { substrate: false, seagrass: true, protected: true, navmarks: true, natura: false, seamarks: true, sightings: true, sdb: true, sdbd: true, vessels: false };
 state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
-  maxZoom: 18, zIndex: 4, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
+  maxZoom: 18, zIndex: 5, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
 });
 map.createPane("grass").style.zIndex = 420;
 map.createPane("natura").style.zIndex = 410;
@@ -162,6 +162,17 @@ fetch("tiles/sdb/index.json", { cache: "no-cache" }).then((r) => r.json()).then(
     index: zooms, v, minZoom: 8, maxNativeZoom: 13, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 2, className: "sdb-layer",
     attribution: "Plićaci: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
   }).on("add", () => toast(`Narančasto: vjerojatno pliće od ${meta.shallow_below_m} m (satelit; u provjerenim područjima uhvati ≥${Math.round(meta.catch_min * 100)} % takvih mjesta). Nije za navigaciju.`));
+  syncLayers();
+}).catch(() => {});
+
+// Eksperimentalno: dubina 0-15 m iz Sentinel-2, kalibrirana na ICESat-2 po blokovima od 15 km
+// (research/sdb/sdb_depth_tiles.py). Boje po pojasevima; pri smanjivanju pobjeđuje najplića dubina.
+fetch("tiles/sdbd/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms, meta }) => {
+  for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
+  state.layers.sdbd = new DepthTiles("tiles/sdbd/{z}/{x}/{y}.png?v={v}", {
+    index: zooms, v, minZoom: 9, maxNativeZoom: 14, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 3, className: "sdbd-layer",
+    attribution: "Dubina sa satelita: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
+  }).on("add", () => toast(`Dubina sa satelita 0-${meta.max_depth_m} m (${meta.area}): procjena, tipična pogreška ~${meta.rmse_median} m, uz tamno dno zna pokazati dublje. Nije za navigaciju.`));
   syncLayers();
 }).catch(() => {});
 
@@ -207,12 +218,17 @@ const AisLayer = L.LayerGroup.extend({
   async _load() {
     const m = this._map;
     if (!m || this._fallback) return;
-    if (m.getZoom() < 9) { this.clearLayers(); return; } // preširoko: previše brodova
+    if (m.getZoom() < 9) { // preširoko: previše brodova
+      this.clearLayers();
+      if (!this._zoomHint) { this._zoomHint = true; toast("Brodovi uživo: približi kartu da ih vidiš."); }
+      return;
+    }
     const b = m.getBounds();
     const r = await fetch(`api/vessels?bbox=${[b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map((x) => x.toFixed(3))}`);
     if (r.status === 503) { this._fallback = new Vessels().addTo(m); return; }
     if (!r.ok || this._map !== m) return;
     const { vessels } = await r.json();
+    if (!this._told) { this._told = true; toast(vessels.length ? `Brodovi uživo: ${vessels.length} u kadru (AIS, osvježava se svakih 30 s).` : "Brodovi uživo: trenutno nema AIS signala u kadru, pokušavam svakih 30 s."); }
     this.clearLayers();
     for (const v of vessels) {
       const dir = v.heading ?? v.cog;

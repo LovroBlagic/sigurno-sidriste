@@ -8,12 +8,15 @@
  */
 import http from "node:http";
 // Lokalni tajni ključevi (npr. AISSTREAM_KEY) iz .env, ako postoji; .env je u .gitignore
-try { process.loadEnvFile(); } catch { /* nema .env */ }
+try { process.loadEnvFile(new URL("../.env", import.meta.url)); } catch { /* nema .env */ }
 import { readFile, stat } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { WEB } from "./engine.js";
 import { handleApi, handleMcp, handleReports, handleSos, send } from "./handlers.js";
+import { ensureLive } from "./vessels.js";
+
+ensureLive(); // AIS brodovi: skupljaj pozicije od starta (samo ako postoji AISSTREAM_KEY)
 
 const PORT = +process.env.PORT || 5173;
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
