@@ -10,7 +10,11 @@
   ]
  ],
  "scene": "S2B_33TVK_20260916_0_L2A",
- "shallow_below_m": 6.0,
+ "shallow_below_m": 4.0,
+ "sdb_threshold_m": 5.0,
+ "catch_rate": 0.96,
+ "marked_truly_shallow": 0.7,
  "rmse_m": 1.4,
+ "v": 1794164370,
  "source": "research/sdb/README.md"
 }
