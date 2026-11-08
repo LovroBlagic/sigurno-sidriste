@@ -230,8 +230,18 @@ function renderBoat(el, editing) {
 }
 
 /* ---------------- opažanja na moru (DEMO prijava: samo nadimak, bez lozinke) ---------------- */
-const KINDS = { dupini: ["🐬", "Dupini"], kornjaca: ["🐢", "Kornjača"], meduze: ["🪼", "Meduze"], morski_pas: ["🦈", "Morski pas"],
-  mrlja: ["🛢️", "Mrlja / onečišćenje"], otpad: ["⚠️", "Plutajući otpad"], ostalo: ["📍", "Ostalo"] };
+// [naziv, boja, crtež 24x24] - jednostavni piktogrami, bez emojija
+const ico = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const KINDS = {
+  dupini: ["Dupini", "#1c5fb8", ico('<path d="M3 15c3-6 10-8 16-5l2-2v4"/><path d="M11 9.5l1.5-3.5 2 3"/><path d="M3 19c2-1 3-1 5 0s3 1 5 0 3-1 5 0"/>')],
+  kornjaca: ["Kornjača", "#2b7a3b", ico('<path d="M4 14a7 5 0 0 1 14 0z"/><circle cx="20" cy="12.5" r="1.6"/><path d="M7 14l-1 3M15 14l1 3"/>')],
+  meduze: ["Meduze", "#8a3fb0", ico('<path d="M5 11a7 7 0 0 1 14 0z"/><path d="M8 11c-1 3 1 5 0 8M12 11c-1 3 1 5 0 8M16 11c-1 3 1 5 0 8"/>')],
+  morski_pas: ["Morski pas", "#4a5866", ico('<path d="M4 17c3-1 6-6 8-12 1 5 4 10 8 12"/><path d="M2 20c2-1 4-1 6 0s4 1 6 0 4-1 6 0"/>')],
+  mrlja: ["Mrlja / onečišćenje", "#6b4f2a", ico('<path d="M12 3c3 5 6 8 6 12a6 6 0 0 1-12 0c0-4 3-7 6-12z"/>')],
+  otpad: ["Plutajući otpad", "#c2410c", ico('<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.01"/>')],
+  ostalo: ["Ostalo", "#6b7785", ico('<circle cx="12" cy="12" r="5"/>')],
+};
+const USER_SVG = ico('<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>');
 const USER_KEY = "sidriste.user", MINE_KEY = "sidriste.mine";
 const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
   set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch { /* privatni način */ } } };
@@ -245,11 +255,11 @@ function timeAgo(iso) {
 function addSighting(r) {
   if (shown.has(r.id) || !KINDS[r.kind]) return null;
   shown.add(r.id);
-  const [emoji, name] = KINDS[r.kind];
+  const [name, color, svg] = KINDS[r.kind];
   return L.marker([r.lat, r.lon], {
-    icon: L.divIcon({ className: "", html: `<div class="obs-pin">${emoji}</div>`, iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -14] }),
+    icon: L.divIcon({ className: "", html: `<div class="obs-pin" style="background:${color}">${svg}</div>`, iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -12] }),
     title: name, riseOnHover: true, bubblingMouseEvents: false,
-  }).bindPopup(`<b>${emoji} ${esc(name)}</b>${r.note ? `<br>${esc(r.note)}` : ""}<br><small>${esc(r.user)} · ${timeAgo(r.at)}</small>`)
+  }).bindPopup(`<b class="obs-head"><i style="background:${color}">${svg}</i>${esc(name)}</b>${r.note ? `<br>${esc(r.note)}` : ""}<br><small>${esc(r.user)} · ${timeAgo(r.at)}</small>`)
     .addTo(state.layers.sightings);
 }
 // Svoja opažanja čuvamo i lokalno: demo server ih drži samo u memoriji
@@ -260,7 +270,7 @@ syncLayers();
 function renderObs(el) {
   if (!el) return;
   if (!state.user) {
-    el.innerHTML = `<button type="button" class="boat-sum"><span class="obs-ico">🐬</span>
+    el.innerHTML = `<button type="button" class="boat-sum">${KINDS.dupini[2]}
       <span><b>Opažanja na moru</b><small>Prijavi se i označi dupine, kornjače, meduze ili onečišćenje</small></span><u>Prijava</u></button>`;
     el.querySelector("button").onclick = () => {
       el.innerHTML = `<form class="boat-form obs-login">
@@ -283,8 +293,8 @@ function renderObs(el) {
     return;
   }
   el.innerHTML = `<div class="obs-box">
-      <p><span class="obs-ico">👤</span><span><b>${esc(state.user)}</b><small>prijavljen (demo)</small></span><button type="button" class="linkish" data-out>Odjava</button></p>
-      <button class="btn${state.marking ? " ghost" : ""}" type="button" data-mark>${state.marking ? "Odustani od označavanja" : "🐬 Označi opažanje na moru"}</button>
+      <p>${USER_SVG}<span><b>${esc(state.user)}</b><small>prijavljen (demo)</small></span><button type="button" class="linkish" data-out>Odjava</button></p>
+      <button class="btn${state.marking ? " ghost" : ""}" type="button" data-mark>${state.marking ? "Odustani od označavanja" : "Označi opažanje na moru"}</button>
       ${state.marking ? `<p class="hint">Dodirni more na karti gdje si to vidio.</p>` : ""}
     </div>`;
   el.querySelector("[data-out]").onclick = () => { state.user = null; store.set(USER_KEY, null); setMarking(false); renderObs(el); };
@@ -306,7 +316,7 @@ function showObsForm(lat, lng) {
     <p class="lead"><span class="mono">${degMin(lat, 2, "N", "S")} ${degMin(lng, 3, "E", "W")}</span><br>prijavljuje <b>${esc(state.user)}</b></p>
     <form class="obs-form">
       <div class="obs-kinds" role="radiogroup" aria-label="Što si vidio?">
-        ${Object.entries(KINDS).map(([k, [e, n]]) => `<label><input type="radio" name="kind" value="${k}" required><span><i>${e}</i>${esc(n)}</span></label>`).join("")}
+        ${Object.entries(KINDS).map(([k, [n, c, svg]]) => `<label><input type="radio" name="kind" value="${k}" required><span><i style="background:${c}">${svg}</i>${esc(n)}</span></label>`).join("")}
       </div>
       <label class="obs-note">Bilješka (neobavezno)<textarea name="note" maxlength="200" rows="2" placeholder="npr. 5 dupina, plivaju prema jugu"></textarea></label>
       <div class="boat-actions"><button class="btn primary" type="submit">Spremi opažanje</button><button class="btn ghost" type="button" data-cancel>Odustani</button></div>
