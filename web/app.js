@@ -164,7 +164,7 @@ fetch("data/sdb_plavnik_plicak.json", { cache: "no-cache" }).then((r) => r.json(
 }).catch(() => {});
 
 function syncLayers() {
-  const want = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true };
+  const want = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true, sightings: true };
   for (const [k, layer] of Object.entries(state.layers)) {
     if (want[k]) layer.addTo(map); else map.removeLayer(layer);
   }
@@ -177,7 +177,7 @@ function showHome() {
   body.querySelector("#legend").innerHTML = [3, 2, 1, 0].map((h) =>
     `<li><span class="sw" style="background:${HOLD[h].color}"></span>${["Stijene i kamenje", "Šljunak / krupno", "Mulj / muljeviti pijesak", "Pijesak"][h]}<small>${HOLD[h].word}</small></li>`).join("")
     + `<li><span class="sw grass"></span>Livada morske trave<small>zabranjeno</small></li>`;
-  const prefs = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true };
+  const prefs = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true, sightings: true };
   body.querySelectorAll("[data-layer]").forEach((cb) => {
     cb.checked = !!prefs[cb.dataset.layer];
     cb.addEventListener("change", () => {
@@ -187,6 +187,7 @@ function showHome() {
   });
   body.querySelector("[data-action=find]").onclick = () => { const c = map.getCenter(); find(c.lat, c.lng); };
   renderBoat(body.querySelector("#boat"), false);
+  renderObs(body.querySelector("#obs"));
   clearPin();
   state.results.clearLayers();
   setHash(null);
@@ -226,6 +227,110 @@ function renderBoat(el, editing) {
   };
   const clr = form.querySelector("[data-clear]");
   if (clr) clr.onclick = () => { state.boat = null; saveBoat(null); renderBoat(el, false); };
+}
+
+/* ---------------- opažanja na moru (DEMO prijava: samo nadimak, bez lozinke) ---------------- */
+const KINDS = { dupini: ["🐬", "Dupini"], kornjaca: ["🐢", "Kornjača"], meduze: ["🪼", "Meduze"], morski_pas: ["🦈", "Morski pas"],
+  mrlja: ["🛢️", "Mrlja / onečišćenje"], otpad: ["⚠️", "Plutajući otpad"], ostalo: ["📍", "Ostalo"] };
+const USER_KEY = "sidriste.user", MINE_KEY = "sidriste.mine";
+const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch { /* privatni način */ } } };
+state.user = store.get(USER_KEY, null);
+state.layers.sightings = L.layerGroup();
+const shown = new Set();
+function timeAgo(iso) {
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  return m < 2 ? "upravo" : m < 60 ? `prije ${m} min` : m < 1440 ? `prije ${Math.round(m / 60)} h` : `prije ${Math.round(m / 1440)} d`;
+}
+function addSighting(r) {
+  if (shown.has(r.id) || !KINDS[r.kind]) return null;
+  shown.add(r.id);
+  const [emoji, name] = KINDS[r.kind];
+  return L.marker([r.lat, r.lon], {
+    icon: L.divIcon({ className: "", html: `<div class="obs-pin">${emoji}</div>`, iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -14] }),
+    title: name, riseOnHover: true, bubblingMouseEvents: false,
+  }).bindPopup(`<b>${emoji} ${esc(name)}</b>${r.note ? `<br>${esc(r.note)}` : ""}<br><small>${esc(r.user)} · ${timeAgo(r.at)}</small>`)
+    .addTo(state.layers.sightings);
+}
+// Svoja opažanja čuvamo i lokalno: demo server ih drži samo u memoriji
+fetch("api/reports").then((r) => r.json()).then((j) => j.reports.forEach(addSighting)).catch(() => {})
+  .finally(() => store.get(MINE_KEY, []).forEach(addSighting));
+syncLayers();
+
+function renderObs(el) {
+  if (!el) return;
+  if (!state.user) {
+    el.innerHTML = `<button type="button" class="boat-sum"><span class="obs-ico">🐬</span>
+      <span><b>Opažanja na moru</b><small>Prijavi se i označi dupine, kornjače, meduze ili onečišćenje</small></span><u>Prijava</u></button>`;
+    el.querySelector("button").onclick = () => {
+      el.innerHTML = `<form class="boat-form obs-login">
+          <label>Nadimak <input name="user" required maxlength="24" autocomplete="nickname" placeholder="npr. Ana_Bura"></label>
+          <div class="boat-actions"><button class="btn" type="submit">Prijavi se</button><button class="btn ghost" type="button" data-cancel>Odustani</button></div>
+          <p class="hint">Demo prijava: samo nadimak, bez lozinke i bez računa.</p>
+        </form>`;
+      const f = el.querySelector("form");
+      f.user.focus();
+      f.onsubmit = (e) => {
+        e.preventDefault();
+        const u = f.user.value.trim();
+        if (!u) return;
+        state.user = u; store.set(USER_KEY, u);
+        toast(`Prijavljen si kao ${u}`);
+        renderObs(el);
+      };
+      f.querySelector("[data-cancel]").onclick = () => renderObs(el);
+    };
+    return;
+  }
+  el.innerHTML = `<div class="obs-box">
+      <p><span class="obs-ico">👤</span><span><b>${esc(state.user)}</b><small>prijavljen (demo)</small></span><button type="button" class="linkish" data-out>Odjava</button></p>
+      <button class="btn${state.marking ? " ghost" : ""}" type="button" data-mark>${state.marking ? "Odustani od označavanja" : "🐬 Označi opažanje na moru"}</button>
+      ${state.marking ? `<p class="hint">Dodirni more na karti gdje si to vidio.</p>` : ""}
+    </div>`;
+  el.querySelector("[data-out]").onclick = () => { state.user = null; store.set(USER_KEY, null); setMarking(false); renderObs(el); };
+  el.querySelector("[data-mark]").onclick = () => { setMarking(!state.marking); renderObs(el); };
+}
+function setMarking(on) {
+  state.marking = on;
+  document.getElementById("map").classList.toggle("marking", on);
+  if (on) toast("Dodirni more gdje si to vidio");
+}
+
+function showObsForm(lat, lng) {
+  setMarking(false);
+  state.req++;
+  pin(lat, lng, "obs");
+  keepVisible(lat, lng);
+  body.innerHTML = `${back()}
+    <h2>Novo opažanje</h2>
+    <p class="lead"><span class="mono">${degMin(lat, 2, "N", "S")} ${degMin(lng, 3, "E", "W")}</span><br>prijavljuje <b>${esc(state.user)}</b></p>
+    <form class="obs-form">
+      <div class="obs-kinds" role="radiogroup" aria-label="Što si vidio?">
+        ${Object.entries(KINDS).map(([k, [e, n]]) => `<label><input type="radio" name="kind" value="${k}" required><span><i>${e}</i>${esc(n)}</span></label>`).join("")}
+      </div>
+      <label class="obs-note">Bilješka (neobavezno)<textarea name="note" maxlength="200" rows="2" placeholder="npr. 5 dupina, plivaju prema jugu"></textarea></label>
+      <div class="boat-actions"><button class="btn primary" type="submit">Spremi opažanje</button><button class="btn ghost" type="button" data-cancel>Odustani</button></div>
+      <p class="hint">Demo: opažanje vide svi korisnici aplikacije.</p>
+    </form>`;
+  wireBack();
+  const f = body.querySelector("form");
+  f.querySelector("[data-cancel]").onclick = showHome;
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = f.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const r = await fetch("api/reports", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon: lng, kind: f.kind.value, note: f.note.value, user: state.user }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      store.set(MINE_KEY, [...store.get(MINE_KEY, []), j].slice(-50));
+      if (!(state.layerPrefs || { sightings: true }).sightings) state.layerPrefs = { ...state.layerPrefs, sightings: true }, syncLayers();
+      showHome();
+      addSighting(j)?.openPopup();
+      toast("Opažanje spremljeno - hvala!");
+    } catch (err) { btn.disabled = false; toast(`Nije spremljeno: ${err.message}`); }
+  };
 }
 
 // Udaljenost i smjer od mog broda (GPS) do točke
@@ -555,7 +660,7 @@ function toast(msg) {
 function setHash(h) { history.replaceState(null, "", `${location.pathname}${location.search}${h ? `#${h}` : ""}`); }
 
 /* ---------------- događaji ---------------- */
-map.on("click", (e) => check(e.latlng.lat, e.latlng.lng));
+map.on("click", (e) => (state.marking && state.user ? showObsForm : check)(e.latlng.lat, e.latlng.lng));
 document.getElementById("sos").addEventListener("click", showSos);
 
 document.getElementById("search").addEventListener("submit", async (e) => {

@@ -102,6 +102,42 @@ export async function handleSos(req, res) {
   }
 }
 
+/* ---------------- OPAŽANJA NA MORU (DEMO) ----------------
+ * Prijavljeni (demo, samo nadimak) korisnici označe dupine, kornjače, meduze, onečišćenje...
+ * Čuva se samo u memoriji servera (na Vercelu se gubi kad se funkcija ugasi); nema prave prijave. */
+export const KINDS = ["dupini", "kornjaca", "meduze", "morski_pas", "mrlja", "otpad", "ostalo"];
+const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+const SEED = () => [
+  { id: "seed-1", lat: 44.985, lon: 14.455, kind: "dupini", note: "Skupina od 5-6 dobrih dupina, plivali prema Krku", user: "Ana_Bura", at: ago(2) },
+  { id: "seed-2", lat: 44.552, lon: 14.39, kind: "dupini", note: "Dupini kod rta, mama s mladim", user: "Lošinjac", at: ago(7) },
+  { id: "seed-3", lat: 43.505, lon: 16.38, kind: "meduze", note: "Puno klobučnjaka uz obalu", user: "Marko", at: ago(5) },
+  { id: "seed-4", lat: 43.07, lon: 16.21, kind: "otpad", note: "Plutajuća paleta, opasno noću", user: "skiper_Ivo", at: ago(3) },
+  { id: "seed-5", lat: 44.12, lon: 14.86, kind: "kornjaca", note: "Glavata želva na površini", user: "Ana_Bura", at: ago(26) },
+];
+const reports = SEED();
+const clean = (v, n) => String(v ?? "").replace(/[\u0000-\u001f]/g, "").trim().slice(0, n);
+
+export async function handleReports(req, res) {
+  if (req.method === "GET") return send(res, 200, { demo: true, reports: reports.slice(-200) });
+  if (req.method !== "POST") return send(res, 405, { error: "Koristi GET ili POST" });
+  try {
+    const b = req.body !== undefined ? (typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body)
+      : JSON.parse((await readBody(req)) || "{}");
+    const lat = +b.lat, lon = +b.lon, user = clean(b.user, 24);
+    if (!user) return send(res, 401, { error: "Prijavi se za označavanje" });
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < 41.5 || lat > 46.6 || lon < 12 || lon > 20) return send(res, 400, { error: "Točka nije na Jadranu" });
+    if (!KINDS.includes(b.kind)) return send(res, 400, { error: "Nepoznata vrsta opažanja" });
+    const r = { id: `r-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, lat: +lat.toFixed(5), lon: +lon.toFixed(5),
+      kind: b.kind, note: clean(b.note, 200), user, at: new Date().toISOString() };
+    reports.push(r);
+    if (reports.length > 500) reports.splice(0, reports.length - 500);
+    console.log(`[OPAŽANJE] ${r.user}: ${r.kind} ${r.lat},${r.lon}`);
+    send(res, 201, r);
+  } catch {
+    if (!res.headersSent) send(res, 400, { error: "Neispravan zahtjev" });
+  }
+}
+
 const readBody = (req) => new Promise((ok, bad) => {
   let s = ""; req.on("data", (c) => { s += c; if (s.length > 1e6) req.destroy(); }); req.on("end", () => ok(s)); req.on("error", bad);
 });
