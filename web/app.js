@@ -148,6 +148,17 @@ engine.ready.then((d) => {
   syncLayers();
 }).catch((e) => toast(`Slojevi karte se nisu učitali: ${e.message}`));
 
+// Eksperimentalno: pliće od 4 m procijenjeno iz Sentinel-2, kalibrirano na ICESat-2 po blokovima od 15 km.
+// Pločice postoje samo gdje je blok prošao provjeru točnosti (research/sdb/sdb_hr.py).
+fetch("tiles/sdb/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms, meta }) => {
+  for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
+  state.layers.sdb = new DepthTiles("tiles/sdb/{z}/{x}/{y}.png?v={v}", {
+    index: zooms, v, minZoom: 8, maxNativeZoom: 13, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 4, className: "sdb-layer",
+    attribution: "Plićaci: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
+  }).on("add", () => toast(`Narančasto: vjerojatno pliće od ${meta.shallow_below_m} m (satelit; u provjerenim područjima uhvati ≥${Math.round(meta.catch_min * 100)} % takvih mjesta). Nije za navigaciju.`));
+  syncLayers();
+}).catch(() => {});
+
 function syncLayers() {
   const want = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true, sightings: true };
   for (const [k, layer] of Object.entries(state.layers)) {

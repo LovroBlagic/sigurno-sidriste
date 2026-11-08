@@ -1,5 +1,5 @@
 /* eSidro - zajednička logika za web aplikaciju i MCP server.
- * Radi i u pregledniku (import map za @turf/turf) i u Nodeu.
+ * Radi i u pregledniku i u Nodeu (geo-funkcije iz ./geo.js, bez Turfa).
  *
  *   const engine = createEngine({ loadJSON });
  *   await engine.ready;
@@ -7,7 +7,7 @@
  *   await engine.findSpots(lat, lon, {...})    -> najbolja sidrišta u blizini
  *   await engine.geocode("Hvar")               -> {lat, lon, name}
  */
-import * as turf from "@turf/turf";
+import * as turf from "./geo.js";
 
 // Dubina za prikaz: raspon u krugu oko točke ("9–12 m") ili jedan broj ako raspona nema
 export const depthLabel = (s) => (s.depthSpan

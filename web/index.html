@@ -10,9 +10,6 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
-  <script type="importmap">
-    { "imports": { "@turf/turf": "https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/+esm" } }
-  </script>
 </head>
 <body>
   <div id="map" aria-label="Karta hrvatskog Jadrana"></div>
@@ -76,6 +73,7 @@
         <label><input type="checkbox" data-layer="natura"> Natura 2000 (ptice)</label>
         <label><input type="checkbox" data-layer="seamarks" checked> Pomorske oznake (OpenSeaMap)</label>
         <label><input type="checkbox" data-layer="sightings" checked> Opažanja nautičara (dupini, meduze, otpad...)</label>
+        <label><input type="checkbox" data-layer="sdb"> Pliće od 4 m sa satelita (eksperimentalno, dio obale)</label>
       </fieldset>
     </details>
   </template>
