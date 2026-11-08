@@ -200,7 +200,8 @@ const Vessels = L.Layer.extend({
   },
 });
 // Brodovi na našoj karti: AIS iz aisstream.io preko /api/vessels (ključ na serveru). Strelica = smjer kretanja.
-// Ako server nema ključ (503), prikaže se VesselFinder prozor (gore).
+// Ako server nema ključ (503) ili aisstream u kadru ne vrati nijedan brod (česti slučaj u Hrvatskoj,
+// malo prijamnika), prikaže se VesselFinder prozor (gore), koji ima bolju pokrivenost Jadrana.
 const AisLayer = L.LayerGroup.extend({
   onAdd(m) {
     L.LayerGroup.prototype.onAdd.call(this, m);
@@ -228,7 +229,13 @@ const AisLayer = L.LayerGroup.extend({
     if (r.status === 503) { this._fallback = new Vessels().addTo(m); return; }
     if (!r.ok || this._map !== m) return;
     const { vessels } = await r.json();
-    if (!this._told) { this._told = true; toast(vessels.length ? `Brodovi uživo: ${vessels.length} u kadru (AIS, osvježava se svakih 30 s).` : "Brodovi uživo: trenutno nema AIS signala u kadru, pokušavam svakih 30 s."); }
+    if (!vessels.length) {
+      this.clearLayers();
+      this._fallback = new Vessels().addTo(m);
+      toast("Brodovi uživo: aisstream nema brodova u kadru, prikazujem VesselFinder.");
+      return;
+    }
+    if (!this._told) { this._told = true; toast(`Brodovi uživo: ${vessels.length} u kadru (AIS, osvježava se svakih 30 s).`); }
     this.clearLayers();
     for (const v of vessels) {
       const dir = v.heading ?? v.cog;
