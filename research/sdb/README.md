@@ -96,6 +96,20 @@ Usporedba po ćelijama, samo gdje ICESat-2 mjeri 0–20 m. Bias = EMODnet − IC
 Za aplikaciju je ovo važno. Uz samu obalu, gdje se sidri, EMODnet je ili EOMAP-ova satelitska
 procjena koja je u prosjeku 2 m preduboka, ili rub bez podataka.
 
+### Sloj na web karti
+
+`sdb_plavnik.py` izrađuje i `web/data/sdb_plavnik_plicak.{png,json}`. U aplikaciji je to prekidač
+„Pliće od 4 m sa satelita, samo Plavnik (eksperimentalno)”. Sloj odgovara na pitanje „je li ovdje
+pliće od 4 m?”, a označava sve gdje satelit procjenjuje manje od **5 m** (1 m rezerve).
+
+Provjera na ICESat-2 pikselima iz izdvojenih prolaza, snimka 2026-09-16:
+
+| prag na SDB | uhvaćeno stvarnih < 4 m | označeno koje je stvarno < 4 m |
+|---|---|---|
+| < 4 m | 78 % | 88 % |
+| **< 5 m (korišteno)** | **96 %** | **70 %** (ostalo je 4–6 m) |
+| < 6 m | 99 % | 56 % |
+
 ## Ograničenja
 
 - **Tamno dno** (posidonija, alge, tamna stijena) čita se kao dublje. ICESat-2 dno nalazi
