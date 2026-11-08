@@ -11,6 +11,7 @@ Sources (credit these in your app):
   - EMODnet Seabed Habitats - Posidonia beds (Art.17, habitat 1120)
   - EMODnet Seabed Habitats - Seagrass cover polygons (2025)
   - EMODnet Seabed Habitats - EUSeaMap 2025 biological zones
+  - Bioportal (HR, INSPIRE WFS) - Natura 2000 bird areas (ps2:ProtectedSite)
 """
 
 import json
@@ -102,6 +103,17 @@ def wfs(layer, filename, label):
     save(filename, data)
 
 
+# 5) Natura 2000 bird areas - Croatian Bioportal INSPIRE WFS (whole country, ~15 MB)
+def natura():
+    print("Natura 2000 (Bioportal)...")
+    data = get_json("https://services.bioportal.hr/inspire/geos2/ps/wfs", {
+        "service": "WFS", "version": "2.0.0", "request": "GetFeature",
+        "typeNames": "ps2:ProtectedSite",
+        "outputFormat": "application/json", "srsName": "EPSG:4326",
+    })
+    save("natura2000.geojson", data)
+
+
 JOBS = [
     ("substrate", substrate),
     ("substrate_1m", lambda: substrate(3, "substrate_1m.geojson", "1:1M")),
@@ -114,6 +126,7 @@ JOBS = [
     ("biozones", lambda: wfs("emodnet_view:eusm2025_bio_200",
                              "biological_zones.geojson",
                              "EUSeaMap 2025 biological zones (200m simplified)")),
+    ("natura", natura),
 ]
 
 if __name__ == "__main__":

@@ -1,0 +1,541 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sigurno sidrište API",
+    "version": "1.0.0",
+    "description": "Ocjena mjesta za sidrenje na hrvatskom Jadranu iz otvorenih podataka (EMODnet, Bioportal, Open-Meteo, OpenStreetMap). Svi tekstovi u odgovorima su na hrvatskom. Pomoć pri planiranju, ne navigacijska karta.\n\nIsti alati dostupni su AI asistentima preko MCP-a (Streamable HTTP, bez stanja) na /mcp: `pronadi_sidriste` i `provjeri_tocku`."
+  },
+  "servers": [
+    {
+      "url": "https://sigurno-sidriste.vercel.app",
+      "description": "Javna testna instanca"
+    },
+    {
+      "url": "http://localhost:5173",
+      "description": "Lokalno (npm start)"
+    }
+  ],
+  "security": [],
+  "paths": {
+    "/api/find": {
+      "get": {
+        "operationId": "pronadiSidriste",
+        "summary": "Najbolja sidrišta u blizini",
+        "description": "Pretražuje mrežu točaka (razmak 200–250 m) u krugu oko zadanog mjesta. Kandidati moraju biti duboki 3–18 m, ne smiju dirati kopno, moraju imati zaklon s barem 3 strane i ne smiju biti na morskoj travi ni na stijenama. Vraća do 5 mjesta međusobno udaljenih barem 600 m, poredanih po ocjeni pa po udaljenosti. Prva pretraga u nekom području traje 8–15 s jer se dubine mjere uživo.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/lat"
+          },
+          {
+            "$ref": "#/components/parameters/lon"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Naziv mjesta u Hrvatskoj umjesto lat/lon, npr. \"Telašćica\".",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Pakleni otoci"
+          },
+          {
+            "name": "r",
+            "in": "query",
+            "description": "Polumjer pretrage u km.",
+            "schema": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 8,
+              "default": 4
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rezultat pretrage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        }
+      }
+    },
+    "/api/check": {
+      "get": {
+        "operationId": "provjeriTocku",
+        "summary": "Ocjena jedne točke",
+        "description": "Provjerava dno, morsku travu, dubinu, vjetar i valove, zaklon u 8 smjerova i Natura 2000 te vraća presudu, činjenice i preporučenu duljinu lanca.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/lat"
+          },
+          {
+            "$ref": "#/components/parameters/lon"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Naziv mjesta umjesto lat/lon.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ocjena točke",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Spot"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        }
+      }
+    },
+    "/api/geocode": {
+      "get": {
+        "operationId": "geokodiraj",
+        "summary": "Naziv mjesta u koordinate",
+        "description": "OpenStreetMap Nominatim, ograničeno na Hrvatsku. Odgovor se smije spremati 24 h.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Hvar"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pronađeno mjesto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "lat",
+                    "lon",
+                    "name"
+                  ],
+                  "properties": {
+                    "lat": {
+                      "type": "number"
+                    },
+                    "lon": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "lat": 43.1739411,
+                  "lon": 16.5565161,
+                  "name": "Hvar, Splitsko-dalmatinska županija"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/data/{layer}.geojson": {
+      "get": {
+        "operationId": "sloj",
+        "summary": "Pripremljeni slojevi karte (GeoJSON, WGS84)",
+        "description": "Statične datoteke izrezane na hrvatsko more i pojednostavljene. Licence izvora vrijede i za ove izvedene slojeve (vidi docs/ARHITEKTURA.md).",
+        "parameters": [
+          {
+            "name": "layer",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "substrate",
+                "seagrass",
+                "posidonia_grid",
+                "biozones",
+                "natura2000"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GeoJSON FeatureCollection",
+            "content": {
+              "application/geo+json": {}
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "lat": {
+        "name": "lat",
+        "in": "query",
+        "description": "Geografska širina, WGS84 (41,5–46,6). Obavezno zajedno s lon, osim ako je zadan q.",
+        "schema": {
+          "type": "number",
+          "minimum": 41.5,
+          "maximum": 46.6
+        },
+        "example": 43.174
+      },
+      "lon": {
+        "name": "lon",
+        "in": "query",
+        "description": "Geografska dužina, WGS84 (12–20).",
+        "schema": {
+          "type": "number",
+          "minimum": 12,
+          "maximum": 20
+        },
+        "example": 16.3249
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Nedostaju ili su neispravni parametri",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Mjesto nije pronađeno",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Upstream": {
+        "description": "Vanjski servis (EMODnet, Open-Meteo, Nominatim) nije odgovorio",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "example": {
+          "error": "Ne mogu pronaći \"Atlantida\""
+        }
+      },
+      "Level": {
+        "type": "string",
+        "enum": [
+          "good",
+          "ok",
+          "bad",
+          "na"
+        ],
+        "description": "good = dobro, ok = oprez, bad = loše, na = nema podataka"
+      },
+      "Weather": {
+        "type": "object",
+        "properties": {
+          "speed": {
+            "type": "number",
+            "description": "Vjetar sada, čvorovi"
+          },
+          "dir": {
+            "type": "number",
+            "description": "Smjer s kojeg puše, stupnjevi"
+          },
+          "gust": {
+            "type": "number",
+            "description": "Udari sada, čvorovi"
+          },
+          "gustMax12": {
+            "type": "number",
+            "description": "Najjači udar idućih 12 h, čvorovi"
+          },
+          "gustMaxTime": {
+            "type": "string",
+            "example": "14:00"
+          },
+          "gustMaxDir": {
+            "type": "number"
+          },
+          "wave": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Visina vala, m"
+          },
+          "wavePeriod": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Period vala, s"
+          }
+        }
+      },
+      "Fact": {
+        "type": "object",
+        "required": [
+          "id",
+          "k",
+          "v",
+          "lvl",
+          "d"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "seabed",
+              "seagrass",
+              "depth",
+              "wind",
+              "forecast",
+              "waves",
+              "shelter",
+              "natura"
+            ]
+          },
+          "k": {
+            "type": "string",
+            "description": "Naslov, npr. \"Dno\""
+          },
+          "v": {
+            "type": "string",
+            "description": "Kratka vrijednost, npr. \"Pijesak\""
+          },
+          "lvl": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "d": {
+            "type": "string",
+            "description": "Objašnjenje i savjet"
+          },
+          "arrow": {
+            "type": "number",
+            "description": "Smjer vjetra za strelicu (samo za id=wind)"
+          }
+        }
+      },
+      "Spot": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "score",
+          "lvl",
+          "title",
+          "reason",
+          "facts"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "lvl": {
+            "type": "string",
+            "enum": [
+              "good",
+              "ok",
+              "bad"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "enum": [
+              "Dobro mjesto za sidrenje",
+              "Sidri uz oprez",
+              "Loše mjesto za sidrenje",
+              "Ne sidri ovdje"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            }
+          },
+          "tips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "chain": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Preporučena duljina lanca u m (5:1, ili 7:1 kad puše); null kad se ne preporučuje sidrenje"
+          },
+          "depth": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Dubina, m"
+          },
+          "seabed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "Pijesak"
+          },
+          "shelter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "from": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Vjetrovi od kojih štiti kopno unutar 1,5 km",
+                "example": [
+                  "tramontana",
+                  "bura",
+                  "levant"
+                ]
+              },
+              "open": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Otvorene strane (S, SI, I, JI, J, JZ, Z, SZ)"
+              }
+            }
+          },
+          "weather": {
+            "$ref": "#/components/schemas/Weather"
+          },
+          "distanceKm": {
+            "type": "number",
+            "description": "Samo u /api/find: udaljenost od središta pretrage"
+          }
+        }
+      },
+      "FindResult": {
+        "type": "object",
+        "required": [
+          "center",
+          "radiusKm",
+          "spots"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Naziv mjesta ako je zadan q"
+          },
+          "center": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lon": {
+                "type": "number"
+              }
+            }
+          },
+          "radiusKm": {
+            "type": "number"
+          },
+          "weather": {
+            "$ref": "#/components/schemas/Weather"
+          },
+          "wind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Najjači vjetar idućih 12 h, npr. \"bura\""
+          },
+          "scanned": {
+            "type": "integer",
+            "description": "Broj kandidata koji su prošli prvi filtar"
+          },
+          "spots": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/Spot"
+            }
+          }
+        }
+      }
+    }
+  }
+}
