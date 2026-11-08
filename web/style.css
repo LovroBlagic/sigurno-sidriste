@@ -2,7 +2,7 @@
   --paper: #f4efe4;
   --paper-2: #ebe4d4;
   --ink: #12263a;
-  --ink-soft: #4a5b6b;
+  --ink-soft: #33424f;
   --line: #d6cdb8;
   --sea: #1d4e6e;
   --accent: #c8553d;
@@ -34,7 +34,7 @@
     --paper: #13202d;
     --paper-2: #1a2a3a;
     --ink: #eae4d6;
-    --ink-soft: #a5b1bd;
+    --ink-soft: #c6cfd8;
     --line: #2c3e50;
     --sea: #7fb3d5;
     --good: #6fcf9f;
@@ -47,7 +47,7 @@
   }
 }
 :root[data-theme="dark"] {
-  --paper: #13202d; --paper-2: #1a2a3a; --ink: #eae4d6; --ink-soft: #a5b1bd; --line: #2c3e50;
+  --paper: #13202d; --paper-2: #1a2a3a; --ink: #eae4d6; --ink-soft: #c6cfd8; --line: #2c3e50;
   --sea: #7fb3d5; --good: #6fcf9f; --good-bg: #183a2c; --ok: #e6b85c; --ok-bg: #3a2f17;
   --bad: #f08878; --bad-bg: #3d1e1a; --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
@@ -63,7 +63,7 @@ body {
 
 #map { position: fixed; inset: 0; background: #aad3df; }
 .leaflet-container { font: inherit; }
-.chart-land { filter: sepia(.35) saturate(.55) brightness(1.05); } /* kopno u tonovima pomorske karte */
+.chart-land { filter: url(#chart-land-fx); } /* kopno žuto kao na pomorskoj karti, filter je u index.html */
 .leaflet-control-attribution { font-size: 10px; }
 .leaflet-top { top: var(--bar-top); }
 .leaflet-top.leaflet-right { top: calc(var(--bar-top) + 64px); } /* ispod gumba za lokaciju */
@@ -78,7 +78,7 @@ body {
 }
 .db-cell { display: grid; align-content: center; min-width: 0; padding: 0 clamp(6px, 1.6vw, 18px); border-left: 1px solid #2a3846; overflow: hidden; }
 .db-cell:first-child { border-left: 0; }
-.db-cell small { font: 600 10px/1.2 var(--font-body); letter-spacing: .1em; color: #8b9bab; white-space: nowrap; }
+.db-cell small { font: 600 10px/1.2 var(--font-body); letter-spacing: .1em; color: #c3ccd6; white-space: nowrap; }
 .db-cell b { font: 500 clamp(14px, 2.6vw, 22px)/1.15 var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: clip; }
 .db-pos b { font-size: clamp(11px, 1.6vw, 14px); line-height: 1.2; }
 .db-cell .wind-arrow { font-size: .85em; color: #f2c14e; }

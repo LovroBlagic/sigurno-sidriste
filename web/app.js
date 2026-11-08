@@ -50,11 +50,11 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 // Podloga kao pomorska karta: pojasevi dubine (0-2, 2-5, 5-10, 10-20, >20 m) i izobate iz EMODnet Bathymetry
 const DEPTH_BANDS = `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>emodnet:mean</Name><UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">`
-  + `<ColorMapEntry color="#f4f9fd" quantity="-20"/><ColorMapEntry color="#d6e8f6" quantity="-10"/><ColorMapEntry color="#b6d4ee" quantity="-5"/>`
-  + `<ColorMapEntry color="#94bfe5" quantity="-2"/><ColorMapEntry color="#7aaedc" quantity="0.5"/><ColorMapEntry color="#000000" opacity="0" quantity="100000"/>`
+  + `<ColorMapEntry color="#ffffff" quantity="-20"/><ColorMapEntry color="#c6e3f7" quantity="-10"/><ColorMapEntry color="#9fcff0" quantity="-5"/>`
+  + `<ColorMapEntry color="#74b7e8" quantity="-2"/><ColorMapEntry color="#4a9fe0" quantity="0.5"/><ColorMapEntry color="#000000" opacity="0" quantity="100000"/>`
   + `</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
 L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
-  layers: "emodnet:mean", sld_body: DEPTH_BANDS, interpolations: "bicubic", format: "image/png", transparent: true, opacity: 0.9,
+  layers: "emodnet:mean", sld_body: DEPTH_BANDS, interpolations: "bicubic", format: "image/png", transparent: true,
   attribution: "EMODnet Bathymetry",
 }).addTo(map);
 L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {

@@ -16,6 +16,12 @@
 </head>
 <body>
   <div id="map" aria-label="Karta hrvatskog Jadrana"></div>
+  <!-- Boje kopna kao na pomorskoj karti: kopno u žuto, voda ostaje plavkasta (koristi .chart-land u style.css) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <filter id="chart-land-fx" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="1.15 0 0 0 0  0 1 0 0 -0.02  -0.95 0 1.75 0 0  0 0 0 1 0"/>
+    </filter>
+  </svg>
 
   <div id="databar" class="databar" aria-label="Podaci za plovidbu">
     <div class="db-cell db-pos"><small id="db-pos-k">SREDINA</small><b id="db-lat">-</b><b id="db-lon">-</b></div>
