@@ -148,7 +148,7 @@ def main(args):
         H.log(tile, "web tiles so far", len(store))
     if not store:
         sys.exit("no depth to draw")
-    meta = dict(area="Plavnik" if plavnik else "Hrvatska", max_depth_m=MAX_DEPTH, bands_m=BANDS,
+    meta = dict(area="Plavnik" if plavnik else "dio obale", max_depth_m=MAX_DEPTH, bands_m=BANDS,
                 colors=["#%02x%02x%02x" % c for c in COLORS], blocks=len(blocks),
                 rmse_median=round(float(np.median([b["cv"]["rmse"] for b in blocks])), 1))
     write(store, meta)
