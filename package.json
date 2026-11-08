@@ -6,6 +6,7 @@
   "description": "Sigurno sidrište - gdje sidriti na hrvatskom Jadranu (web + MCP server)",
   "scripts": {
     "data": "python3 scripts/download_data.py && python3 scripts/build_layers.py",
+    "tiles": "node scripts/build_depth_tiles.mjs",
     "start": "node server/index.js",
     "mcp": "node mcp/stdio.js"
   },

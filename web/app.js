@@ -41,12 +41,18 @@ const body = document.getElementById("panel-body");
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* ---------------- karta ---------------- */
-// Samo hrvatski Jadran: od Savudrije do Prevlake, s otocima do Palagruže
-const ADRIATIC = L.latLngBounds([[42.2, 13.0], [45.9, 19.0]]);
+// Samo Jadran: do kuda postoje pločice dubine (BOUNDS u scripts/build_depth_tiles.mjs)
+const TILE_BOUNDS = L.latLngBounds([[41.5, 12.0], [46.5, 20.0]]);
+// Koliko se smije vidjeti: zapadna granica uvučena da se ne vidi Tirensko more uz Rim
+const VIEW_BOUNDS = L.latLngBounds([[41.5, 12.5], [46.5, 20.0]]);
 // Početni prikaz: more od Istre do Dubrovnika, slobodno od panela (lijevo na računalu).
 // Mobitel je preuzak za cijelu obalu, pa gleda Kvarner i sjevernu Dalmaciju iznad donjeg panela.
 const START = L.latLngBounds([[42.4, 13.2], [45.6, 17.6]]);
-const map = L.map("map", { zoomControl: false, minZoom: 7, maxBounds: ADRIATIC.pad(0.2), maxBoundsViscosity: 1 });
+const map = L.map("map", { zoomControl: false, maxBounds: VIEW_BOUNDS, maxBoundsViscosity: 1 });
+// Najmanji zum: onaj na kojem cijeli ekran stane unutar Jadrana (ovisi o veličini ekrana)
+const fitMinZoom = () => map.setMinZoom(Math.max(7, map.getBoundsZoom(VIEW_BOUNDS, true)));
+fitMinZoom();
+map.on("resize", fitMinZoom);
 if (innerWidth <= 720) {
   map.setView([45.2, 14.5], 8);
   map.panBy([0, innerHeight * 0.5 - (120 + innerHeight * 0.5) / 2], { animate: false });
@@ -55,40 +61,63 @@ if (innerWidth <= 720) {
 }
 L.control.zoom({ position: "topright", zoomInTitle: "Približi", zoomOutTitle: "Udalji" }).addTo(map);
 L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
-// Pregled: samo more, kopno jednobojno (bez cesta, granica i unutrašnjosti). Detaljna obala tek od zuma 11.
-// OSM je uvijek ispod: ako EMODnet ne odgovori, vidi se obična karta umjesto praznine.
-const DETAIL_ZOOM = 11;
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19, className: "chart-land", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+
+// Pregled (zum < 11): samo more, kopno jednobojno (pozadina #map). Od zuma 11 detaljna obala iz OSM-a.
+const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  minZoom: 11, maxZoom: 19, className: "chart-land", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
-// Podloga kao pomorska karta: pojasevi dubine (0-2, 2-5, 5-10, 10-20, >20 m) i izobate iz EMODnet Bathymetry
-const depthBands = (land) => `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>emodnet:mean</Name><UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">`
-  + `<ColorMapEntry color="#ffffff" quantity="-20"/><ColorMapEntry color="#c6e3f7" quantity="-10"/><ColorMapEntry color="#9fcff0" quantity="-5"/>`
-  + `<ColorMapEntry color="#74b7e8" quantity="-2"/><ColorMapEntry color="#4a9fe0" quantity="0.5"/>`
-  + (land ? `<ColorMapEntry color="${land}" quantity="100000"/>` : `<ColorMapEntry color="#000000" opacity="0" quantity="100000"/>`)
-  + `</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
-const bands = (land, zoom) => L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
-  layers: "emodnet:mean", sld_body: depthBands(land), interpolations: "bicubic", format: "image/png", transparent: true,
-  tileSize: 512, zoomOffset: -1, attribution: "EMODnet Bathymetry", ...zoom, // veće pločice = 4x manje upita prema EMODnetu
-}).addTo(map);
-bands("#f3df9e", { maxZoom: DETAIL_ZOOM - 1 });
-bands(null, { minZoom: DETAIL_ZOOM });
-L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
-  layers: "emodnet:contours", format: "image/png", transparent: true, tileSize: 512, zoomOffset: -1,
-}).addTo(map);
+
+// Dubina: unaprijed izračunate statične pločice (scripts/build_depth_tiles.mjs), zum 7-12; bliže ih preglednik povećava.
+// index.json je bitmapa postojećih pločica, pa se za kopno ništa ne traži sa servera.
+const EMPTY = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+const DepthTiles = L.TileLayer.extend({
+  getTileUrl(c) {
+    const t = this.options.index[c.z];
+    const x = t ? c.x - t.x0 : -1, y = t ? c.y - t.y0 : -1, k = y * (t?.w ?? 0) + x;
+    const has = t && x >= 0 && y >= 0 && x < t.w && y < t.h && (t.bytes[k >> 3] >> (k & 7)) & 1;
+    return has ? L.TileLayer.prototype.getTileUrl.call(this, c) : EMPTY;
+  },
+});
+// ?v= je oznaka izrade iz index.json: pločice se dugo pamte, a nova izrada dobije nove adrese
+const depth = new DepthTiles("tiles/depth/{z}/{x}/{y}.png?v={v}", {
+  index: {}, v: "", minZoom: 7, maxNativeZoom: 12, maxZoom: 19, bounds: TILE_BOUNDS, attribution: "EMODnet Bathymetry",
+});
+fetch("tiles/depth/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms }) => {
+  for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
+  Object.assign(depth.options, { index: zooms, v });
+  if (!state.satellite) depth.addTo(map);
+}).catch(() => toast("Karta dubine se nije učitala"));
+
+// Satelit kao na Google kartama: gumb dolje desno mijenja kartu i satelitsku snimku
+const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, attribution: "Snimke &copy; Esri, Maxar, Earthstar Geographics",
+});
+L.Control.SatToggle = L.Control.extend({
+  options: { position: "bottomright" },
+  onAdd() {
+    const b = L.DomUtil.create("button", "sat-toggle");
+    b.type = "button";
+    L.DomEvent.disableClickPropagation(b);
+    const draw = () => {
+      b.classList.toggle("on", !!state.satellite);
+      b.innerHTML = `<span>${state.satellite ? "Karta" : "Satelit"}</span>`;
+      b.setAttribute("aria-label", state.satellite ? "Prikaži kartu" : "Prikaži satelitsku snimku");
+    };
+    b.onclick = () => {
+      state.satellite = !state.satellite;
+      for (const l of [depth, base]) state.satellite ? map.removeLayer(l) : l.addTo(map);
+      state.satellite ? satellite.addTo(map) : map.removeLayer(satellite);
+      document.getElementById("map").classList.toggle("sat", state.satellite);
+      draw();
+    };
+    draw();
+    return b;
+  },
+});
+new L.Control.SatToggle().addTo(map);
+
 state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
   maxZoom: 18, zIndex: 3, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
-});
-// Zračni snimak: DGU digitalni ortofoto 1:5000 (data.gov.hr, otvorena dozvola). Svaki ciklus snima pola Hrvatske,
-// pa se slažu dva. Veće pločice jer javna usluga stavlja vodeni žig na svaku sliku.
-const dof = (years) => L.tileLayer.wms(`https://geoportal.dgu.hr/services/inspire/orthophoto_${years}/wms`, {
-  layers: "OI.OrthoimageCoverage", format: "image/png", transparent: true, version: "1.3.0",
-  tileSize: 1024, zoomOffset: -2, minZoom: 11, zIndex: 2,
-  attribution: 'Ortofoto &copy; <a href="https://geoportal.dgu.hr">DGU</a>',
-});
-state.layers.aerial = L.layerGroup([dof("2021_2022"), dof("2023_2024")]);
-state.layers.depth = L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
-  layers: "emodnet:mean_multicolour", format: "image/png", transparent: true, opacity: 0.55, attribution: "EMODnet Bathymetry",
 });
 map.createPane("grass").style.zIndex = 420;
 map.createPane("natura").style.zIndex = 410;

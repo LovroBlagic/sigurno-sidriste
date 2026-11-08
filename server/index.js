@@ -24,7 +24,8 @@ async function files(u, res) {
   try {
     const buf = await readFile(file);
     res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream",
-      "Cache-Control": file.includes(`${path.sep}data${path.sep}`) ? "public, max-age=3600" : "no-cache" });
+      "Cache-Control": file.includes(`${path.sep}tiles${path.sep}`) && file.endsWith(".png") ? "public, max-age=604800"
+        : file.includes(`${path.sep}data${path.sep}`) ? "public, max-age=3600" : "no-cache" });
     res.end(buf);
   } catch { send(res, 404, { error: "Nema datoteke" }); }
 }

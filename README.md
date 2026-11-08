@@ -58,6 +58,7 @@ Puni opis parametara i odgovora: [web/openapi.json](web/openapi.json) (OpenAPI 3
 ```bash
 npm install
 npm run data     # jednom: preuzmi i pripremi slojeve (Python 3 + Node)
+npm run tiles    # po potrebi: ponovno izračunaj pločice karte dubine (web/tiles/depth, ~10 min)
 npm start        # http://localhost:5173  ·  MCP: http://localhost:5173/mcp
 ```
 
