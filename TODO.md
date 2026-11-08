@@ -1,4 +1,4 @@
-# TODO - Sigurno sidrište
+# TODO - eSidro
 
 Rok predaje: **ponedjeljak 9. 11. 2026. u 24:00**, isključivo e-poštom na **open.data@mpudt.hr**.
 Rješenje bez videa se ne ocjenjuje (Pravila, pogl. VIII).

@@ -85,7 +85,7 @@ export function cardIdea(caption) {
     .eq { font:700 30px "Fraunces"; margin-top:40px; color:#fff; }
     .eq span { color:var(--grass); }`,
     `<div class="wrap">
-      <div class="brand in">${ANCHOR}<h1>Sigurno sidrište</h1></div>
+      <div class="brand in">${ANCHOR}<h1>eSidro</h1></div>
       <div class="tag in" style="animation-delay:.3s">Gdje sidriti na hrvatskom Jadranu, u jednom koraku</div>
       <div class="chips">${chips.map(([a, b, c], i) => `<div class="chip in" style="animation-delay:${0.9 + i * 0.55}s"><b><i style="background:${c}"></i>${a}</b><small>${b}</small></div>`).join("")}</div>
       <div class="eq in" style="animation-delay:4.2s">→ <span>jedan jasan odgovor</span></div>
@@ -137,7 +137,7 @@ export function cardOutro(caption) {
     .src { margin-top:40px; color:var(--soft); font-size:16px; letter-spacing:.02em; }`,
     `<div class="wrap">
       <div class="brand in">${ANCHOR}</div>
-      <h1 class="in" style="animation-delay:.2s">Sigurno sidrište</h1>
+      <h1 class="in" style="animation-delay:.2s">eSidro</h1>
       <div class="tag in" style="animation-delay:.8s">Čuvaj more. Spavaj mirno.</div>
       <div class="src in" style="animation-delay:1.3s">Otvoreni podaci: EMODnet · Open-Meteo · OpenStreetMap · Bioportal HAOP</div>
     </div>`, caption);

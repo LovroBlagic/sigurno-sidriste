@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brodovi uživo</title>
+  <style>html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1724; } #vesselfinder { display: block; height: 100vh; }</style>
+</head>
+<body>
+  <!-- Službeni VesselFinder ugradivi prozor (besplatan, uz njihovu oznaku). Položaj dolazi iz ?lat=&lon=&z= -->
+  <script>
+    const q = new URLSearchParams(location.search);
+    var width = "100%", height = String(window.innerHeight || 300);
+    var latitude = q.get("lat") || "44.5", longitude = q.get("lon") || "15.0", zoom = q.get("z") || "9";
+    var names = true;
+  </script>
+  <script src="https://www.vesselfinder.com/aismap.js"></script>
+</body>
+</html>

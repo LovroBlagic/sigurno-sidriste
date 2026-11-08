@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Snima 60 s promotivni video "Sigurno sidrište".
+/* Snima 60 s promotivni video "eSidro".
  *   1. npm start            (server mora raditi na :5173)
  *   2. node video/record.mjs
  * Izlaz: video/sigurno-sidriste.mp4

@@ -1,6 +1,6 @@
 # Tehnička arhitektura
 
-Sigurno sidrište spaja pet javnih izvora podataka u jednu odluku: *smijem li ovdje sidriti i koliko lanca trebam*. Isti mehanizam ocjene (`web/core.js`) koriste web aplikacija, REST API i MCP server za AI asistente.
+eSidro spaja pet javnih izvora podataka u jednu odluku: *smijem li ovdje sidriti i koliko lanca trebam*. Isti mehanizam ocjene (`web/core.js`) koriste web aplikacija, REST API i MCP server za AI asistente.
 
 ## 1. Komponente
 
@@ -12,7 +12,7 @@ flowchart LR
     EXT[Druge aplikacije]
   end
 
-  subgraph Vercel["Sigurno sidrište (Vercel)"]
+  subgraph Vercel["eSidro (Vercel)"]
     WEB["Statične datoteke<br/>web/ (Leaflet sučelje)"]
     LAY[("Pripremljeni slojevi<br/>web/data/*.geojson<br/>~1,6 MB")]
     API["REST API<br/>/api/find · /api/check · /api/geocode"]

@@ -1,5 +1,5 @@
-/* Sigurno sidrište - zajednička logika za web aplikaciju i MCP server.
- * Radi i u pregledniku (import map za @turf/turf) i u Nodeu.
+/* eSidro - zajednička logika za web aplikaciju i MCP server.
+ * Radi i u pregledniku i u Nodeu (geo-funkcije iz ./geo.js, bez Turfa).
  *
  *   const engine = createEngine({ loadJSON });
  *   await engine.ready;
@@ -7,7 +7,12 @@
  *   await engine.findSpots(lat, lon, {...})    -> najbolja sidrišta u blizini
  *   await engine.geocode("Hvar")               -> {lat, lon, name}
  */
-import * as turf from "@turf/turf";
+import * as turf from "./geo.js";
+
+// Dubina za prikaz: raspon u krugu oko točke ("9–12 m") ili jedan broj ako raspona nema
+export const depthLabel = (s) => (s.depthSpan
+  ? (s.depthSpan[0] === s.depthSpan[1] ? `${s.depthSpan[0]} m` : `${s.depthSpan[0]}–${s.depthSpan[1]} m`)
+  : s.depth != null ? `${s.depth} m` : null);
 
 export const LAYERS = ["substrate", "seagrass", "posidonia_grid", "biozones", "natura2000", "protected", "navmarks"];
 
@@ -155,6 +160,54 @@ async function pool(items, size, fn) {
 const round = (x, n = 1) => Math.round(x * 10 ** n) / 10 ** n;
 const list = (a) => (a.length <= 1 ? a.join("") : a.slice(0, -1).join(", ") + " i " + a.at(-1));
 
+/* ---------- dubina iz više izvora ---------- */
+const SOURCE_NAMES = { survey: "izmjera", satellite: "satelit EOMAP", gebco: "GEBCO popuna", model: "model" };
+// Izvor EMODnet ćelije: GEBCO je globalna interpolacija, croatia2003 je satelitska batimetrija (EOMAP),
+// ostalo su izmjere/kompilacije izmjera (npr. Hrvatski hidrografski institut).
+function sourceKind(id) {
+  if (!id) return "model";
+  if (/gebco/i.test(id)) return "gebco";
+  if (/croatia2003/i.test(id)) return "satellite";
+  return "survey";
+}
+const median = (a) => { const b = [...a].sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+
+/** Spoji EMODnet točku, okolicu od 150 m, EMODnet 2018 i GEBCO 2020 u jednu procjenu s rasponom.
+ *  GEBCO (~450 m) je uz obalu pregrub, pa se prikazuje, ali u procjenu ulazi samo ako drugog nema. */
+export function depthEstimate(ctx) {
+  const sources = [], sea = [], gebco = [];
+  let land = 0;
+  const p = ctx.depth;
+  if (p) {
+    const name = `EMODnet 2024 (${SOURCE_NAMES[p.source] || "model"})`;
+    if (p.land) { land++; sources.push({ name, label: "kopno", kind: p.source }); }
+    else if (p.depth > 0) { sea.push(p.depth); sources.push({ name, label: `${fmt(round(p.depth))} m`, depth: round(p.depth), kind: p.source }); }
+  }
+  if (ctx.spread) {
+    const [lo, hi, med, km = 0.15] = ctx.spread;
+    sea.push(med);
+    sources.push({ name: `EMODnet okolica ${Math.round(km * 1000)} m`, label: depthLabel({ depthSpan: [Math.floor(lo), Math.ceil(hi)] }), depth: round(med), min: round(lo), max: round(hi) });
+  }
+  for (const [k, name] of [["emod2018", "EMODnet 2018"], ["gebco2020", "GEBCO 2020"]]) {
+    const v = ctx.topo?.[k];
+    if (v == null) continue;
+    if (v === "land") { land++; sources.push({ name, label: "kopno" }); continue; }
+    (k === "gebco2020" ? gebco : sea).push(v);
+    sources.push({ name, label: `${fmt(v)} m`, depth: v });
+  }
+  if (!sources.length) return null;
+  // Samo GEBCO (~450 m): uz obalu je pregrub da bi išta odlučivao, pa nema procjene, samo prikaz.
+  if (!sea.length) return { allLand: !gebco.length && land > 0, depth: null, gebcoOnly: gebco.length > 0, sources };
+  const use = sea;
+  const survey = !!p && !p.land && p.source === "survey";
+  const all = [...use, ...(ctx.spread ? ctx.spread.slice(0, 2) : [])];
+  return {
+    depth: survey ? p.depth : median(use),
+    span: [Math.floor(Math.min(...all)), Math.ceil(Math.max(...all))],
+    deepest: Math.max(...all), survey, nearCoast: !!p?.land, used: use.length, sources,
+  };
+}
+
 /* ---------- motor ---------- */
 export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globalThis), isBrowser = typeof window !== "undefined" }) {
   const data = {};
@@ -177,7 +230,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
   const getJSON = async (url) => {
     const hit = cache.get(url);
     if (hit && Date.now() - hit.t < 30 * 60e3) return hit.v;
-    const host = new URL(url).host;
+    const host = new URL(url, isBrowser ? location.href : undefined).host;
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
@@ -207,10 +260,23 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
   async function depthAt(lon, lat) {
     const d = await getJSON(`https://rest.emodnet-bathymetry.eu/depth_sample?geom=${encodeURIComponent(`POINT(${lon} ${lat})`)}`);
     if (d == null || d.avg == null) return null;
+    const source = sourceKind(d.reference?.identifier);
     // API vraća nadmorsku visinu (negativno = ispod mora). Bez izmjere: avg 0, ali postoji izglađena procjena.
-    if (d.avg < 0) return { depth: -d.avg, estimated: !!d.interpolationType };
-    if (d.avg === 0 && (d.elementarySurfaces ?? 0) <= 0 && d.smoothed < 0) return { depth: -d.smoothed, estimated: true };
-    return { depth: -d.avg, land: true };
+    if (d.avg < 0) return { depth: -d.avg, estimated: !!d.interpolationType, source };
+    if (d.avg === 0 && (d.elementarySurfaces ?? 0) <= 0 && d.smoothed < 0) return { depth: -d.smoothed, estimated: true, source };
+    return { depth: -d.avg, land: true, source };
+  }
+
+  // Dva neovisna modela s Open Topo Data: EMODnet DTM 2018 (stariji, drukčije interpolirano izdanje) i GEBCO 2020 (~450 m).
+  // Open Topo Data nema CORS, pa preglednik ide preko našeg /api/topo. Vraća dubinu u m (+), "land" ili null.
+  async function topoAt(lon, lat) {
+    if (isBrowser) return getJSON(`/api/topo?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`);
+    const one = async (ds) => {
+      const e = (await getJSON(`https://api.opentopodata.org/v1/${ds}?locations=${lat.toFixed(5)},${lon.toFixed(5)}`)).results?.[0]?.elevation;
+      return e == null ? null : e < 0 ? round(-e) : "land";
+    };
+    const [emod2018, gebco2020] = await Promise.allSettled([one("emod2018"), one("gebco2020")]);
+    return { emod2018: emod2018.value ?? null, gebco2020: gebco2020.value ?? null };
   }
 
   async function profile(lon0, lat0, lon1, lat1) {
@@ -237,6 +303,22 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     const v = summarizeWeather(hours, { wave: m?.current?.wave_height, wavePeriod: m?.current?.wave_period });
     weatherCache.set(key, { t: Date.now(), v });
     return v;
+  }
+
+  // Najplića i najdublja dubina u krugu od 150 m (otprilike krug okretanja broda na sidru):
+  // dva profila kroz točku, sjever-jug i istok-zapad. Model ima mrežu ~115 m, pa jedan broj zavarava.
+  async function depthSpread(lon, lat, km = 0.15) {
+    const r = await depthSpread1(lon, lat, km);
+    // Duboko u uvali sve na 150 m može biti "kopno" (ćelije 115 m), pa se pogleda i šire
+    return r || (km < 0.3 ? depthSpread(lon, lat, 0.3) : null);
+  }
+  async function depthSpread1(lon, lat, km) {
+    const [n, e, s, w] = [0, 90, 180, 270].map((deg) => turf.destination([lon, lat], km, deg).geometry.coordinates);
+    const ps = await Promise.all([profile(...s, ...n), profile(...w, ...e)]);
+    const sea = ps.flat().filter((v) => v != null && v < 0).map((v) => -v);
+    if (!sea.length) return null;
+    const sorted = [...sea].sort((a, b) => a - b);
+    return [sorted[0], sorted.at(-1), sorted[sorted.length >> 1], km];
   }
 
   // 8 zraka od 2 km: koliko je daleko kopno u svakom smjeru
@@ -285,32 +367,54 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     }
     if (ctx.posGrid && !ctx.grass.length) tips.push("Hrvatska prijavljuje posidoniju u ovom području - pogledaj dno prije sidrenja.");
 
-    // Dubina
-    let depth = ctx.depth?.depth ?? null;
-    if (ctx.depthError) {
+    // Dubina: više izvora. EMODnet ima mrežu ~115 m i uz obalu ćelija miješa kopno i more, pa sama točka
+    // u uvali često ispadne "kopno" ili "preplitko". Zato se gleda i okolica od 150 m, EMODnet 2018 i GEBCO.
+    const est = depthEstimate(ctx);
+    let depth = est?.depth ?? null;
+    let depthSpan = est?.span ?? null;
+    const srcText = est?.sources.length ? ` Izvori: ${est.sources.map((x) => `${x.name} ${x.label}`).join(" · ")}.` : "";
+    if (ctx.depthError && !est) {
       facts.push({ id: "depth", k: "Dubina", v: "nedostupno", lvl: "na", d: "Servis za dubinu nije odgovorio. Koristi dubinomjer." });
-      depth = null;
-    } else if (ctx.depth?.land) {
+    } else if (ctx.water === false) {
+      blocker = blocker || "Ova točka je na kopnu";
+      facts.push({ id: "depth", k: "Dubina", v: "-", lvl: "bad", d: "Prema OpenStreetMap obali ova točka je na kopnu. Dodirni more." });
+      depth = null; depthSpan = null;
+    } else if (est?.allLand && !ctx.water) {
       blocker = blocker || "Ova točka je na kopnu ili tik uz obalu";
-      facts.push({ id: "depth", k: "Dubina", v: "-", lvl: "bad", d: "Model dubine ovdje pokazuje kopno. Odaberi točku malo dalje od obale." });
-      depth = null;
+      facts.push({ id: "depth", k: "Dubina", v: "-", lvl: "bad", d: "Svi modeli dubine ovdje pokazuju kopno. Odaberi točku malo dalje od obale." + srcText });
+      depth = null; depthSpan = null;
+    } else if (est?.gebcoOnly) {
+      facts.push({ id: "depth", k: "Dubina", v: "nepouzdano", lvl: "na", d: "Uz samu obalu nema pouzdanog modela dubine (EMODnet ovdje pokazuje kopno, GEBCO je pregrub). Prilazi polako i gledaj dubinomjer." + srcText });
+      depth = null; depthSpan = null;
     } else if (depth == null || depth <= 0) {
       facts.push({ id: "depth", k: "Dubina", v: "nema podataka", lvl: "na", d: "Nema podataka o dubini. Koristi kartu i dubinomjer." });
-      depth = null;
+      depth = null; depthSpan = null;
     } else {
+      // "Preplitko" je zabrana samo kad se izvori slažu (ili je točka iz prave izmjere).
+      // Kad se ne slažu, to je upozorenje: modeli uz obalu češće griješe na plitko nego na duboko.
+      const need = ctx.boat?.draft ? ctx.boat.draft + 1 : 2;
+      // Tik uz obalu (EMODnet točka = kopno) model interpolira prema 0 m, pa ni plitka okolica nije dokaz.
+      const sure = est.survey || (!est.nearCoast && est.deepest < need);
       let lvl = "good", d = "Ugodna dubina za sidrenje.";
       const draft = ctx.boat?.draft;
-      if (draft && depth < draft + 1) { lvl = "bad"; d = `Preplitko za tvoj brod (gaz ${fmt(draft)} m) - treba barem ${fmt(draft + 1)} m.`; score -= 45; blocker = blocker || `Preplitko za tvoj brod (gaz ${fmt(draft)} m)`; }
+      if (depth < need && sure) {
+        lvl = "bad"; score -= 45;
+        d = draft ? `Preplitko za tvoj brod (gaz ${fmt(draft)} m) - treba barem ${fmt(need)} m.` : "Preplitko za većinu kobilica.";
+        blocker = blocker || (draft ? `Preplitko za tvoj brod (gaz ${fmt(draft)} m)` : "Preplitko");
+      } else if (depth < need) {
+        lvl = "ok"; score -= 12;
+        d = `Možda plitko: modeli se ne slažu (${depthLabel({ depthSpan })}). Uz obalu mreža od ~115 m često pokaže preplitko - prilazi polako i gledaj dubinomjer.`;
+      }
       else if (draft && depth < draft + 2) { lvl = "ok"; d = `Malo vode ispod kobilice (gaz ${fmt(draft)} m).`; score -= 12; }
-      else if (!draft && depth < 2) { lvl = "bad"; d = "Preplitko za većinu kobilica."; score -= 45; blocker = blocker || "Preplitko"; }
       else if (!draft && depth < 3) { lvl = "ok"; d = "Plitko - provjeri gaz broda."; score -= 12; }
       else if (depth <= 15) { lvl = "good"; }
       else if (depth <= 25) { lvl = "ok"; d = "Duboko - trebat ćeš puno lanca."; score -= 22; }
       else if (depth <= 35) { lvl = "bad"; d = "Vrlo duboko. Većina jahti nema dovoljno lanca."; score -= 35; }
       else { lvl = "bad"; d = "Preduboko za sidrenje."; score -= 60; blocker = blocker || "Preduboko za sidrenje"; }
+      if (est.nearCoast) d += " Točka je tik uz obalu (model ovdje miješa kopno i more), dubina je procjena iz okolice.";
       facts.push({
-        id: "depth", k: "Dubina", v: `${ctx.depth.estimated ? "≈" : ""}${depth.toFixed(1)} m`, lvl,
-        d: d + (ctx.depth.estimated ? " (Procjena - ovdje nema izmjere. Provjeri dubinomjerom.)" : " (Prosjek EMODnet mreže ~115 m - provjeri dubinomjerom.)"),
+        id: "depth", k: "Dubina", v: depthSpan ? depthLabel({ depthSpan }) : `≈${depth.toFixed(1)} m`, lvl,
+        d: `${d} Procjena ≈${fmt(round(depth))} m (${est.survey ? "iz prave izmjere" : est.used > 1 ? `srednja vrijednost ${est.used} izvora` : "jedan izvor"}).${srcText} Provjeri dubinomjerom.`,
       });
     }
 
@@ -461,6 +565,8 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     return {
       score, lvl, title, reason, facts, tips, chain,
       depth: depth != null ? round(depth) : null,
+      depthSpan,
+      depthSources: est?.sources ?? [],
       seabed: ctx.seabed?.f.properties.label ?? null,
       shelter,
     };
@@ -479,16 +585,21 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     };
   }
 
-  async function checkSpot(lat, lon, { weather, rays: knownRays, boat } = {}) {
+  async function checkSpot(lat, lon, { weather, rays: knownRays, boat, extraSources = true, water } = {}) {
     await ready;
     const ctx = local(lon, lat);
     ctx.boat = normBoat(boat);
-    const [depth, wx, rays] = await Promise.allSettled([
+    const [depth, wx, rays, spread, topo] = await Promise.allSettled([
       depthAt(lon, lat),
       weather ? Promise.resolve(weather) : weatherAt(lon, lat),
       knownRays ? Promise.resolve(knownRays) : shelterRays(lon, lat),
+      depthSpread(lon, lat),
+      extraSources ? topoAt(lon, lat) : Promise.resolve(null), // Open Topo Data: 1 upit/s, pa ne za pretragu kruga
     ]);
     ctx.depth = depth.status === "fulfilled" ? depth.value : null;
+    ctx.spread = spread.status === "fulfilled" ? spread.value : null;
+    ctx.topo = topo.status === "fulfilled" ? topo.value : null;
+    ctx.water = water; // true/false iz OSM obale (web aplikacija), inače undefined
     ctx.depthError = depth.status === "rejected";
     ctx.weather = wx.status === "fulfilled" ? wx.value : null;
     ctx.weatherError = wx.status === "rejected";
@@ -590,7 +701,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       if (picked.every((p) => turf.distance([p.x, p.y], [cd.x, cd.y]) > 0.6)) picked.push(cd);
       if (picked.length >= max + 3) break;
     }
-    const checked = await Promise.all(picked.map((p) => checkSpot(p.y, p.x, { weather, rays: p.rays, boat })));
+    const checked = await Promise.all(picked.map((p) => checkSpot(p.y, p.x, { weather, rays: p.rays, boat, extraSources: false })));
     const spots = checked
       .map((s) => ({ ...s, distanceKm: round(turf.distance([lon, lat], [s.lon, s.lat]), 1) }))
       .filter((s) => s.lvl !== "bad")
@@ -606,7 +717,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     return { lat: +r[0].lat, lon: +r[0].lon, name: r[0].display_name.split(",").slice(0, 2).join(",") };
   }
 
-  return { ready, data, checkSpot, findSpots, geocode, weatherAt };
+  return { ready, data, checkSpot, findSpots, geocode, weatherAt, topoAt };
 }
 
 /* ---------- tekstualni sažetak (za MCP / dijeljenje) ---------- */
@@ -614,7 +725,7 @@ export function spotText(s, { short = false } = {}) {
   const head = `${s.title} - ${s.score}/100 (${s.lat.toFixed(4)}° N, ${s.lon.toFixed(4)}° E)`;
   const link = `https://www.google.com/maps?q=${s.lat},${s.lon}`;
   if (short) {
-    const bits = [s.depth != null ? `${s.depth} m` : null, s.seabed?.toLowerCase(),
+    const bits = [depthLabel(s), s.seabed?.toLowerCase(),
       s.shelter?.from.length ? `zaklon od: ${list(s.shelter.from)}` : null].filter(Boolean);
     return `${head}\n   ${bits.join(" · ")}${s.chain ? ` · lanac ${s.chain} m` : ""}\n   ${link}`;
   }

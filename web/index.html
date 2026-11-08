@@ -3,19 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Sigurno sidrište</title>
+  <title>eSidro</title>
   <meta name="description" content="Gdje sidriti na hrvatskom Jadranu: dno koje drži, livade posidonije, dubina, zaklon i vjetar za svaku točku.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
-  <script type="importmap">
-    { "imports": { "@turf/turf": "https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/+esm" } }
-  </script>
 </head>
 <body>
   <div id="map" aria-label="Karta hrvatskog Jadrana"></div>
+  <!-- Boje kopna kao na pomorskoj karti: kopno u žuto, voda ostaje plavkasta (koristi .chart-land u style.css) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <filter id="chart-land-fx" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="1.15 0 0 0 0  0 1 0 0 -0.02  -0.95 0 1.75 0 0  0 0 0 1 0"/>
+    </filter>
+    <!-- Isto, ali OSM voda (#aad3df, plava jača od crvene) postaje prozirna: alfa = 1,6 - 8·(B - R) -->
+    <filter id="chart-land-mask-fx" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="1.15 0 0 0 0  0 1 0 0 -0.02  -0.95 0 1.75 0 0  8 0 -8 0 1.6"/>
+    </filter>
+  </svg>
+
+  <div id="databar" class="databar" aria-label="Podaci za plovidbu">
+    <div class="db-cell db-pos"><small id="db-pos-k">SREDINA</small><b id="db-lat">-</b><b id="db-lon">-</b></div>
+    <div class="db-cell" title="Udaljenost od tvog broda (gumb za lokaciju)"><small>UDALJ.</small><b id="db-dist">-</b></div>
+    <div class="db-cell" title="Smjer od tvog broda (stvarni)"><small>SMJER</small><b id="db-brg">-</b></div>
+    <div class="db-cell" title="Vjetar sada (zadnja pretraga)"><small>VJETAR</small><b id="db-wind">-</b></div>
+  </div>
 
   <header class="topbar">
     <div class="brand">
@@ -23,7 +37,7 @@
         <circle cx="16" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="2"/>
         <path d="M16 9v19M10 14h12M5 19c1 6 6 9 11 9s10-3 11-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
-      <h1>Sigurno sidrište</h1>
+      <h1>eSidro</h1>
     </div>
     <form id="search" class="search" role="search">
       <input id="q" type="search" placeholder="Gdje ploviš? npr. Hvar, Vis, Telašćica" autocomplete="off" aria-label="Mjesto ili uvala">
@@ -31,6 +45,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </form>
+    <button id="sos" class="btn round sos" type="button" title="SOS - hitni slučaj na moru" aria-label="SOS - hitni slučaj na moru">SOS</button>
     <button id="locate" class="btn round" type="button" title="Moja lokacija" aria-label="Moja lokacija">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
     </button>
@@ -50,17 +65,22 @@
     </button>
     <p class="hint">ili dodirni more na karti za provjeru jedne točke</p>
     <div class="boat" id="boat"></div>
+    <div class="boat" id="obs"></div>
     <details class="more">
       <summary>Legenda i slojevi</summary>
       <ul class="legend" id="legend"></ul>
       <fieldset class="layers">
-        <label><input type="checkbox" data-layer="substrate" checked> Vrsta dna</label>
+        <label><input type="checkbox" data-layer="substrate"> Vrsta dna</label>
         <label><input type="checkbox" data-layer="seagrass" checked> Morska trava i posidonija</label>
-        <label><input type="checkbox" data-layer="protected"> Nacionalni parkovi, parkovi prirode, rezervati</label>
-        <label><input type="checkbox" data-layer="navmarks"> Svjetionici i oznake opasnosti (Plovput)</label>
+        <label><input type="checkbox" data-layer="protected" checked> Nacionalni parkovi, parkovi prirode, rezervati</label>
+        <label><input type="checkbox" data-layer="navmarks" checked> Svjetionici i oznake opasnosti (Plovput)</label>
         <label><input type="checkbox" data-layer="natura"> Natura 2000 (ptice)</label>
         <label><input type="checkbox" data-layer="seamarks" checked> Pomorske oznake (OpenSeaMap)</label>
-        <label><input type="checkbox" data-layer="depth"> Dubina (sjenčanje)</label>
+        <label><input type="checkbox" data-layer="sightings" checked> Opažanja nautičara (dupini, meduze, otpad...)</label>
+        <label><input type="checkbox" data-layer="sdbd" checked> Dubina sa satelita 0–15 m (eksperimentalno, Plavnik)</label>
+        <div class="sdbd-legend" aria-label="Boje dubine sa satelita"><span style="--c:#d7301f">0–2</span><span style="--c:#fc8d59">2–4</span><span style="--c:#fee08b">4–6</span><span style="--c:#d9ef8b">6–8</span><span style="--c:#91cf60">8–10</span><span style="--c:#41b6c4">10–12</span><span style="--c:#225ea8">12–15 m</span></div>
+        <label><input type="checkbox" data-layer="sdb" checked> Pliće od 4 m sa satelita (eksperimentalno, dio obale)</label>
+        <label><input type="checkbox" data-layer="vessels"> Brodovi uživo (AIS)</label>
       </fieldset>
     </details>
   </template>

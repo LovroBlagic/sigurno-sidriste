@@ -1,5 +1,5 @@
-/* Sigurno sidrište - web sučelje. Sva logika je u core.js (dijeli se s MCP serverom). */
-import { HOLD, windOf, normBoat } from "./core.js";
+/* eSidro - web sučelje. Sva logika je u core.js (dijeli se s MCP serverom). */
+import { HOLD, windOf, normBoat, depthLabel } from "./core.js";
 
 const GRASS = "#2a9d5c";
 
@@ -31,7 +31,7 @@ const boatLine = (b) => [b.draft && `gaz ${num1(b.draft)} m`, b.chain && `lanac 
 const engine = {
   ready: Promise.all(["substrate", "seagrass", "natura2000", "protected", "navmarks"].map(layer))
     .then(([substrate, seagrass, natura2000, protectedAreas, navmarks]) => ({ substrate, seagrass, natura2000, protectedAreas, navmarks })),
-  checkSpot: (lat, lon) => api("check", { lat, lon, ...boatParams() }),
+  checkSpot: (lat, lon, { water } = {}) => api("check", { lat, lon, ...boatParams(), ...(water != null ? { water: water ? 1 : 0 } : {}) }),
   findSpots: (lat, lon, { radiusKm }) => api("find", { lat, lon, r: radiusKm, ...boatParams() }),
   geocode: (q) => api("geocode", { q }).catch((e) => (/pronaći/.test(e.message) ? null : Promise.reject(e))),
 };
@@ -41,18 +41,89 @@ const body = document.getElementById("panel-body");
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* ---------------- karta ---------------- */
-const map = L.map("map", { zoomControl: false, minZoom: 6, maxBounds: [[41.5, 11.5], [46.6, 20.5]] })
-  .setView([43.6, 15.9], 8);
+// Samo Jadran: do kuda postoje pločice dubine (BOUNDS u scripts/build_depth_tiles.mjs)
+const TILE_BOUNDS = L.latLngBounds([[41.5, 12.0], [46.5, 20.0]]);
+// Koliko se smije vidjeti: zapadna granica uvučena da se ne vidi Tirensko more uz Rim
+const VIEW_BOUNDS = L.latLngBounds([[41.5, 12.5], [46.5, 20.0]]);
+// Početni prikaz: more od Istre do Dubrovnika, slobodno od panela (lijevo na računalu).
+// Mobitel je preuzak za cijelu obalu, pa gleda Kvarner i sjevernu Dalmaciju iznad donjeg panela.
+const START = L.latLngBounds([[42.4, 13.2], [45.6, 17.6]]);
+const map = L.map("map", { zoomControl: false, maxBounds: VIEW_BOUNDS, maxBoundsViscosity: 1 });
+// Najmanji zum: onaj na kojem cijeli ekran stane unutar Jadrana (ovisi o veličini ekrana)
+const fitMinZoom = () => map.setMinZoom(Math.max(7, map.getBoundsZoom(VIEW_BOUNDS, true)));
+fitMinZoom();
+map.on("resize", fitMinZoom);
+if (innerWidth <= 720) {
+  map.setView([45.2, 14.5], 8);
+  map.panBy([0, innerHeight * 0.5 - (120 + innerHeight * 0.5) / 2], { animate: false });
+} else {
+  map.fitBounds(START, { paddingTopLeft: [400, 130], paddingBottomRight: [20, 20] });
+}
 L.control.zoom({ position: "topright", zoomInTitle: "Približi", zoomOutTitle: "Udalji" }).addTo(map);
 L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+
+// Pregled (zum < 11): samo more, kopno jednobojno (pozadina #map). Od zuma 11 detaljna obala iz OSM-a.
+const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  minZoom: 11, maxZoom: 19, zIndex: 0, className: "chart-land", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
-state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
-  maxZoom: 18, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
+// EMODnet obala je mreža ~115 m, pa plava dubina zna prijeći na kopno. Iste OSM pločice još jednom IZNAD dubine,
+// s vodom prozirnom (filter #chart-land-mask-fx): kopno uvijek prekriva dubinu, a dubina se vidi samo na moru.
+const landMask = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  minZoom: 11, maxZoom: 19, zIndex: 4, className: "chart-land-mask",
+}).addTo(map);
+
+// Dubina: unaprijed izračunate statične pločice (scripts/build_depth_tiles.mjs), zum 7-12; bliže ih preglednik povećava.
+// index.json je bitmapa postojećih pločica, pa se za kopno ništa ne traži sa servera.
+const EMPTY = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+const DepthTiles = L.TileLayer.extend({
+  getTileUrl(c) {
+    const t = this.options.index[c.z];
+    const x = t ? c.x - t.x0 : -1, y = t ? c.y - t.y0 : -1, k = y * (t?.w ?? 0) + x;
+    const has = t && x >= 0 && y >= 0 && x < t.w && y < t.h && (t.bytes[k >> 3] >> (k & 7)) & 1;
+    return has ? L.TileLayer.prototype.getTileUrl.call(this, c) : EMPTY;
+  },
 });
-state.layers.depth = L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
-  layers: "emodnet:mean_multicolour", format: "image/png", transparent: true, opacity: 0.55, attribution: "EMODnet Bathymetry",
+// ?v= je oznaka izrade iz index.json: pločice se dugo pamte, a nova izrada dobije nove adrese
+const depth = new DepthTiles("tiles/depth/{z}/{x}/{y}.png?v={v}", {
+  index: {}, v: "", zIndex: 1, minZoom: 7, maxNativeZoom: 12, maxZoom: 19, bounds: TILE_BOUNDS, attribution: "EMODnet Bathymetry",
+});
+fetch("tiles/depth/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms }) => {
+  for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
+  Object.assign(depth.options, { index: zooms, v });
+  if (!state.satellite) depth.addTo(map);
+}).catch(() => toast("Karta dubine se nije učitala"));
+
+// Satelit kao na Google kartama: gumb dolje desno mijenja kartu i satelitsku snimku
+const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, attribution: "Snimke &copy; Esri, Maxar, Earthstar Geographics",
+});
+L.Control.SatToggle = L.Control.extend({
+  options: { position: "bottomright" },
+  onAdd() {
+    const b = L.DomUtil.create("button", "sat-toggle");
+    b.type = "button";
+    L.DomEvent.disableClickPropagation(b);
+    const draw = () => {
+      b.classList.toggle("on", !!state.satellite);
+      b.innerHTML = `<span>${state.satellite ? "Karta" : "Satelit"}</span>`;
+      b.setAttribute("aria-label", state.satellite ? "Prikaži kartu" : "Prikaži satelitsku snimku");
+    };
+    b.onclick = () => {
+      state.satellite = !state.satellite;
+      for (const l of [depth, base, landMask]) state.satellite ? map.removeLayer(l) : l.addTo(map);
+      state.satellite ? satellite.addTo(map) : map.removeLayer(satellite);
+      document.getElementById("map").classList.toggle("sat", state.satellite);
+      draw();
+    };
+    draw();
+    return b;
+  },
+});
+new L.Control.SatToggle().addTo(map);
+
+const DEFAULT_LAYERS = { substrate: false, seagrass: true, protected: true, navmarks: true, natura: false, seamarks: true, sightings: true, sdb: true, sdbd: true, vessels: false };
+state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
+  maxZoom: 18, zIndex: 5, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
 });
 map.createPane("grass").style.zIndex = 420;
 map.createPane("natura").style.zIndex = 410;
@@ -83,8 +154,100 @@ engine.ready.then((d) => {
   syncLayers();
 }).catch((e) => toast(`Slojevi karte se nisu učitali: ${e.message}`));
 
+// Eksperimentalno: pliće od 4 m procijenjeno iz Sentinel-2, kalibrirano na ICESat-2 po blokovima od 15 km.
+// Pločice postoje samo gdje je blok prošao provjeru točnosti (research/sdb/sdb_hr.py).
+fetch("tiles/sdb/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms, meta }) => {
+  for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
+  state.layers.sdb = new DepthTiles("tiles/sdb/{z}/{x}/{y}.png?v={v}", {
+    index: zooms, v, minZoom: 8, maxNativeZoom: 13, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 2, className: "sdb-layer",
+    attribution: "Plićaci: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
+  }).on("add", () => toast(`Narančasto: vjerojatno pliće od ${meta.shallow_below_m} m (satelit; u provjerenim područjima uhvati ≥${Math.round(meta.catch_min * 100)} % takvih mjesta). Nije za navigaciju.`));
+  syncLayers();
+}).catch(() => {});
+
+// Eksperimentalno: dubina 0-15 m iz Sentinel-2, kalibrirana na ICESat-2 po blokovima od 15 km
+// (research/sdb/sdb_depth_tiles.py). Boje po pojasevima; pri smanjivanju pobjeđuje najplića dubina.
+fetch("tiles/sdbd/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms, meta }) => {
+  for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
+  state.layers.sdbd = new DepthTiles("tiles/sdbd/{z}/{x}/{y}.png?v={v}", {
+    index: zooms, v, minZoom: 9, maxNativeZoom: 14, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 3, className: "sdbd-layer",
+    attribution: "Dubina sa satelita: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
+  }).on("add", () => toast(`Dubina sa satelita 0-${meta.max_depth_m} m (${meta.area}): procjena, tipična pogreška ~${meta.rmse_median} m, uz tamno dno zna pokazati dublje. Nije za navigaciju.`));
+  syncLayers();
+}).catch(() => {});
+
+// Brodovi uživo: VesselFinder nudi besplatno samo svoj ugradivi prozor (AIS), ne sloj za Leaflet,
+// pa se prikazuje kao prozor nad kartom koji prati središte i zoom naše karte.
+const Vessels = L.Layer.extend({
+  onAdd(m) {
+    this._box = L.DomUtil.create("div", "vessels-box", m.getContainer());
+    this._box.innerHTML = `<div class="vessels-head"><b>Brodovi uživo</b><small>AIS · VesselFinder</small><button type="button" aria-label="Zatvori">×</button></div><iframe title="Brodovi uživo (VesselFinder)" loading="lazy"></iframe>`;
+    L.DomEvent.disableClickPropagation(this._box);
+    L.DomEvent.disableScrollPropagation(this._box);
+    this._box.querySelector("button").onclick = () => {
+      state.layerPrefs = { ...(state.layerPrefs || DEFAULT_LAYERS), vessels: false };
+      document.querySelectorAll("[data-layer=vessels]").forEach((cb) => { cb.checked = false; });
+      syncLayers();
+    };
+    this._move = () => { clearTimeout(this._t); this._t = setTimeout(() => this._load(), 600); };
+    m.on("moveend", this._move);
+    this._load();
+  },
+  onRemove(m) { m.off("moveend", this._move); clearTimeout(this._t); this._box.remove(); },
+  _load() {
+    const c = this._map.getCenter(), z = Math.max(6, Math.min(14, this._map.getZoom() - 1));
+    this._box.querySelector("iframe").src = `brodovi.html?lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}&z=${z}`;
+  },
+});
+// Brodovi na našoj karti: AIS iz aisstream.io preko /api/vessels (ključ na serveru). Strelica = smjer kretanja.
+// Ako server nema ključ (503), prikaže se VesselFinder prozor (gore).
+const AisLayer = L.LayerGroup.extend({
+  onAdd(m) {
+    L.LayerGroup.prototype.onAdd.call(this, m);
+    this._fallback = null;
+    this._move = () => { clearTimeout(this._t); this._t = setTimeout(() => this._load(), 500); };
+    m.on("moveend", this._move);
+    this._timer = setInterval(() => this._load(), 30e3);
+    this._load();
+  },
+  onRemove(m) {
+    m.off("moveend", this._move); clearTimeout(this._t); clearInterval(this._timer);
+    if (this._fallback) { m.removeLayer(this._fallback); this._fallback = null; }
+    L.LayerGroup.prototype.onRemove.call(this, m);
+  },
+  async _load() {
+    const m = this._map;
+    if (!m || this._fallback) return;
+    if (m.getZoom() < 9) { // preširoko: previše brodova
+      this.clearLayers();
+      if (!this._zoomHint) { this._zoomHint = true; toast("Brodovi uživo: približi kartu da ih vidiš."); }
+      return;
+    }
+    const b = m.getBounds();
+    const r = await fetch(`api/vessels?bbox=${[b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map((x) => x.toFixed(3))}`);
+    if (r.status === 503) { this._fallback = new Vessels().addTo(m); return; }
+    if (!r.ok || this._map !== m) return;
+    const { vessels } = await r.json();
+    if (!this._told) { this._told = true; toast(vessels.length ? `Brodovi uživo: ${vessels.length} u kadru (AIS, osvježava se svakih 30 s).` : "Brodovi uživo: trenutno nema AIS signala u kadru, pokušavam svakih 30 s."); }
+    this.clearLayers();
+    for (const v of vessels) {
+      const dir = v.heading ?? v.cog;
+      const moving = v.sog > 0.5 && dir != null;
+      const icon = L.divIcon({
+        className: "ais-ship", iconSize: [22, 22],
+        html: moving ? `<svg viewBox="0 0 18 18" style="transform:rotate(${dir}deg)"><path d="M9 1 15 16 9 12.5 3 16Z"/></svg>`
+          : `<svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4.5"/></svg>`,
+      });
+      L.marker([v.lat, v.lon], { icon, keyboard: false, zIndexOffset: 500 })
+        .bindPopup(`<b>${esc(v.name || `MMSI ${v.mmsi}`)}</b><br>${v.sog != null ? `${num1(v.sog)} čv` : "brzina nepoznata"}${v.cog != null ? ` · kurs ${Math.round(v.cog)}°` : ""}<br><small>AIS prije ${v.age < 90 ? `${v.age} s` : `${Math.round(v.age / 60)} min`} · aisstream.io</small>`)
+        .addTo(this);
+    }
+  },
+});
+state.layers.vessels = new AisLayer();
+
 function syncLayers() {
-  const want = state.layerPrefs || { substrate: true, seagrass: true, seamarks: true };
+  const want = state.layerPrefs || DEFAULT_LAYERS;
   for (const [k, layer] of Object.entries(state.layers)) {
     if (want[k]) layer.addTo(map); else map.removeLayer(layer);
   }
@@ -97,7 +260,7 @@ function showHome() {
   body.querySelector("#legend").innerHTML = [3, 2, 1, 0].map((h) =>
     `<li><span class="sw" style="background:${HOLD[h].color}"></span>${["Stijene i kamenje", "Šljunak / krupno", "Mulj / muljeviti pijesak", "Pijesak"][h]}<small>${HOLD[h].word}</small></li>`).join("")
     + `<li><span class="sw grass"></span>Livada morske trave<small>zabranjeno</small></li>`;
-  const prefs = state.layerPrefs || { substrate: true, seagrass: true, seamarks: true };
+  const prefs = state.layerPrefs || DEFAULT_LAYERS;
   body.querySelectorAll("[data-layer]").forEach((cb) => {
     cb.checked = !!prefs[cb.dataset.layer];
     cb.addEventListener("change", () => {
@@ -107,6 +270,7 @@ function showHome() {
   });
   body.querySelector("[data-action=find]").onclick = () => { const c = map.getCenter(); find(c.lat, c.lng); };
   renderBoat(body.querySelector("#boat"), false);
+  renderObs(body.querySelector("#obs"));
   clearPin();
   state.results.clearLayers();
   setHash(null);
@@ -148,6 +312,120 @@ function renderBoat(el, editing) {
   if (clr) clr.onclick = () => { state.boat = null; saveBoat(null); renderBoat(el, false); };
 }
 
+/* ---------------- opažanja na moru (DEMO prijava: samo nadimak, bez lozinke) ---------------- */
+// [naziv, boja, crtež 24x24] - jednostavni piktogrami, bez emojija
+const ico = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const KINDS = {
+  dupini: ["Dupini", "#1c5fb8", ico('<path d="M3 15c3-6 10-8 16-5l2-2v4"/><path d="M11 9.5l1.5-3.5 2 3"/><path d="M3 19c2-1 3-1 5 0s3 1 5 0 3-1 5 0"/>')],
+  kornjaca: ["Kornjača", "#2b7a3b", ico('<path d="M4 14a7 5 0 0 1 14 0z"/><circle cx="20" cy="12.5" r="1.6"/><path d="M7 14l-1 3M15 14l1 3"/>')],
+  meduze: ["Meduze", "#8a3fb0", ico('<path d="M5 11a7 7 0 0 1 14 0z"/><path d="M8 11c-1 3 1 5 0 8M12 11c-1 3 1 5 0 8M16 11c-1 3 1 5 0 8"/>')],
+  morski_pas: ["Morski pas", "#4a5866", ico('<path d="M4 17c3-1 6-6 8-12 1 5 4 10 8 12"/><path d="M2 20c2-1 4-1 6 0s4 1 6 0 4-1 6 0"/>')],
+  mrlja: ["Mrlja / onečišćenje", "#6b4f2a", ico('<path d="M12 3c3 5 6 8 6 12a6 6 0 0 1-12 0c0-4 3-7 6-12z"/>')],
+  otpad: ["Plutajući otpad", "#c2410c", ico('<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.01"/>')],
+  ostalo: ["Ostalo", "#6b7785", ico('<circle cx="12" cy="12" r="5"/>')],
+};
+const USER_SVG = ico('<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>');
+const USER_KEY = "sidriste.user", MINE_KEY = "sidriste.mine";
+const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch { /* privatni način */ } } };
+state.user = store.get(USER_KEY, null);
+state.layers.sightings = L.layerGroup();
+const shown = new Set();
+function timeAgo(iso) {
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  return m < 2 ? "upravo" : m < 60 ? `prije ${m} min` : m < 1440 ? `prije ${Math.round(m / 60)} h` : `prije ${Math.round(m / 1440)} d`;
+}
+function addSighting(r) {
+  if (shown.has(r.id) || !KINDS[r.kind]) return null;
+  shown.add(r.id);
+  const [name, color, svg] = KINDS[r.kind];
+  return L.marker([r.lat, r.lon], {
+    icon: L.divIcon({ className: "", html: `<div class="obs-pin" style="background:${color}">${svg}</div>`, iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -12] }),
+    title: name, riseOnHover: true, bubblingMouseEvents: false,
+  }).bindPopup(`<b class="obs-head"><i style="background:${color}">${svg}</i>${esc(name)}</b>${r.note ? `<br>${esc(r.note)}` : ""}<br><small>${esc(r.user)} · ${timeAgo(r.at)}</small>`)
+    .addTo(state.layers.sightings);
+}
+// Svoja opažanja čuvamo i lokalno: demo server ih drži samo u memoriji
+fetch("api/reports").then((r) => r.json()).then((j) => j.reports.forEach(addSighting)).catch(() => {})
+  .finally(() => store.get(MINE_KEY, []).forEach(addSighting));
+syncLayers();
+
+function renderObs(el) {
+  if (!el) return;
+  if (!state.user) {
+    el.innerHTML = `<button type="button" class="boat-sum">${KINDS.dupini[2]}
+      <span><b>Opažanja na moru</b><small>Prijavi se i označi dupine, kornjače, meduze ili onečišćenje</small></span><u>Prijava</u></button>`;
+    el.querySelector("button").onclick = () => {
+      el.innerHTML = `<form class="boat-form obs-login">
+          <label>Nadimak <input name="user" required maxlength="24" autocomplete="nickname" placeholder="npr. Ana_Bura"></label>
+          <div class="boat-actions"><button class="btn" type="submit">Prijavi se</button><button class="btn ghost" type="button" data-cancel>Odustani</button></div>
+          <p class="hint">Demo prijava: samo nadimak, bez lozinke i bez računa.</p>
+        </form>`;
+      const f = el.querySelector("form");
+      f.user.focus();
+      f.onsubmit = (e) => {
+        e.preventDefault();
+        const u = f.user.value.trim();
+        if (!u) return;
+        state.user = u; store.set(USER_KEY, u);
+        toast(`Prijavljen si kao ${u}`);
+        renderObs(el);
+      };
+      f.querySelector("[data-cancel]").onclick = () => renderObs(el);
+    };
+    return;
+  }
+  el.innerHTML = `<div class="obs-box">
+      <p>${USER_SVG}<span><b>${esc(state.user)}</b><small>prijavljen (demo)</small></span><button type="button" class="linkish" data-out>Odjava</button></p>
+      <button class="btn${state.marking ? " ghost" : ""}" type="button" data-mark>${state.marking ? "Odustani od označavanja" : "Označi opažanje na moru"}</button>
+      ${state.marking ? `<p class="hint">Dodirni more na karti gdje si to vidio.</p>` : ""}
+    </div>`;
+  el.querySelector("[data-out]").onclick = () => { state.user = null; store.set(USER_KEY, null); setMarking(false); renderObs(el); };
+  el.querySelector("[data-mark]").onclick = () => { setMarking(!state.marking); renderObs(el); };
+}
+function setMarking(on) {
+  state.marking = on;
+  document.getElementById("map").classList.toggle("marking", on);
+  if (on) toast("Dodirni more gdje si to vidio");
+}
+
+function showObsForm(lat, lng) {
+  setMarking(false);
+  state.req++;
+  pin(lat, lng, "obs");
+  keepVisible(lat, lng);
+  body.innerHTML = `${back()}
+    <h2>Novo opažanje</h2>
+    <p class="lead"><span class="mono">${degMin(lat, 2, "N", "S")} ${degMin(lng, 3, "E", "W")}</span><br>prijavljuje <b>${esc(state.user)}</b></p>
+    <form class="obs-form">
+      <div class="obs-kinds" role="radiogroup" aria-label="Što si vidio?">
+        ${Object.entries(KINDS).map(([k, [n, c, svg]]) => `<label><input type="radio" name="kind" value="${k}" required><span><i style="background:${c}">${svg}</i>${esc(n)}</span></label>`).join("")}
+      </div>
+      <label class="obs-note">Bilješka (neobavezno)<textarea name="note" maxlength="200" rows="2" placeholder="npr. 5 dupina, plivaju prema jugu"></textarea></label>
+      <div class="boat-actions"><button class="btn primary" type="submit">Spremi opažanje</button><button class="btn ghost" type="button" data-cancel>Odustani</button></div>
+      <p class="hint">Demo: opažanje vide svi korisnici aplikacije.</p>
+    </form>`;
+  wireBack();
+  const f = body.querySelector("form");
+  f.querySelector("[data-cancel]").onclick = showHome;
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = f.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const r = await fetch("api/reports", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon: lng, kind: f.kind.value, note: f.note.value, user: state.user }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      store.set(MINE_KEY, [...store.get(MINE_KEY, []), j].slice(-50));
+      if (!(state.layerPrefs || { sightings: true }).sightings) state.layerPrefs = { ...state.layerPrefs, sightings: true }, syncLayers();
+      showHome();
+      addSighting(j)?.openPopup();
+      toast("Opažanje spremljeno - hvala!");
+    } catch (err) { btn.disabled = false; toast(`Nije spremljeno: ${err.message}`); }
+  };
+}
+
 // Udaljenost i smjer od mog broda (GPS) do točke
 function fromMe(lat, lon) {
   if (!state.me) return null;
@@ -159,7 +437,7 @@ function fromMe(lat, lon) {
   const x = Math.cos(state.me.lat * toR) * Math.sin(lat * toR) - Math.sin(state.me.lat * toR) * Math.cos(lat * toR) * Math.cos(dLon);
   const brg = (Math.atan2(y, x) / toR + 360) % 360;
   const nm = km / 1.852;
-  return { km, text: `${km < 1 ? `${Math.round(km * 1000)} m` : `${num1(km)} km`} (${num1(nm)} NM) ${windOf(brg).side} od tebe` };
+  return { km, brg, text: `${km < 1 ? `${Math.round(km * 1000)} m` : `${num1(km)} km`} (${num1(nm)} NM) ${windOf(brg).side} od tebe` };
 }
 
 function setMe(lat, lon, acc) {
@@ -168,7 +446,38 @@ function setMe(lat, lon, acc) {
   if (state.meMarker) state.meMarker.setLatLng([lat, lon]);
   else state.meMarker = L.marker([lat, lon], { icon, keyboard: false, zIndexOffset: 900, title: "Tvoj brod" }).addTo(map);
   state.meMarker.bindTooltip(`Tvoj brod${acc ? ` (±${Math.round(acc)} m)` : ""}`);
+  updateBar(map.getCenter(), false);
 }
+
+/* ---------------- traka s podacima (kao na ploteru) ---------------- */
+const $ = (id) => document.getElementById(id);
+// 43.1702 -> 43°10,212'N (stupnjevi i decimalne minute, kao na pomorskim kartama)
+const degMin = (v, pad, pos, neg) => {
+  const a = Math.abs(v), d = Math.floor(a);
+  return `${String(d).padStart(pad, "0")}°${((a - d) * 60).toFixed(3).padStart(6, "0").replace(".", ",")}'${v >= 0 ? pos : neg}`;
+};
+function updateBar(ll, cursor) {
+  $("db-pos-k").textContent = cursor ? "KURSOR" : "SREDINA";
+  $("db-lat").textContent = degMin(ll.lat, 2, "N", "S");
+  $("db-lon").textContent = degMin(ll.lng, 3, "E", "W");
+  const m = fromMe(ll.lat, ll.lng);
+  const nm = m && m.km / 1.852;
+  $("db-dist").textContent = m ? `${nm.toFixed(nm < 10 ? 2 : 1).replace(".", ",")} NM` : "-";
+  $("db-brg").textContent = m ? `${String(Math.round(m.brg) % 360).padStart(3, "0")}°` : "-";
+}
+function barWind(w) {
+  if (!w) return;
+  $("db-wind").innerHTML = `${Math.round(w.speed)} čv <span class="wind-arrow" style="transform:rotate(${w.dir + 180}deg)">↑</span>`;
+  $("db-wind").parentElement.title = `Vjetar sada: ${windOf(w.dir).name}, ${Math.round(w.speed)} čv`;
+}
+// Na računalu prati miš, na mobitelu sredinu karte
+let cursorOn = false;
+if (matchMedia("(hover: hover)").matches) {
+  map.on("mousemove", (e) => { cursorOn = true; updateBar(e.latlng, true); });
+  map.on("mouseout", () => { cursorOn = false; updateBar(map.getCenter(), false); });
+}
+map.on("move", () => { if (!cursorOn) updateBar(map.getCenter(), false); });
+updateBar(map.getCenter(), false);
 
 /* ---------------- vrijeme: upozorenje i prognoza po 3 h ---------------- */
 function alertBox(al, forList) {
@@ -222,6 +531,7 @@ function renderFind(res, label) {
     }).on("click", () => showSpot(s, true)));
   });
   const w = res.weather;
+  barWind(w);
   const windLine = w ? `Vjetar sada ${Math.round(w.speed)} čv, udari do ${Math.round(Math.max(w.gust, w.gustMax24 ?? w.gustMax12 ?? 0))} čv u 24 h${res.wind ? ` · najjače puše ${res.wind}` : ""}${res.widened ? ` · krug proširen na ${res.radiusKm} km` : ""}` : "";
   body.innerHTML = `${back()}<h2>${label ? esc(label) : "Sidrišta u blizini"}</h2>
     ${alertBox(res.alert, true)}
@@ -231,7 +541,7 @@ function renderFind(res, label) {
     ${res.spots.length ? `<ol class="spots">${res.spots.map((s, i) => `
       <li><button type="button" data-i="${i}">
         <span class="num ${s.lvl}">${i + 1}</span>
-        <span class="sp-main"><b>${s.title}</b><span>${[s.depth != null ? `${s.depth} m` : null, s.seabed?.toLowerCase(), s.shelter?.from.length ? `zaklon od: ${s.shelter.from.join(", ")}` : null].filter(Boolean).join(" · ")}</span></span>
+        <span class="sp-main"><b>${s.title}</b><span>${[depthLabel(s), s.seabed?.toLowerCase(), s.shelter?.from.length ? `zaklon od: ${s.shelter.from.join(", ")}` : null].filter(Boolean).join(" · ")}</span></span>
         <span class="sp-side"><b>${s.score}</b><small>${state.me ? esc(fromMe(s.lat, s.lon).text.replace(" od tebe", "")) : `${s.distanceKm} km`}</small></span>
       </button></li>`).join("")}</ol>`
       : res.alert ? `<p class="tip">U krugu od ${res.radiusKm} km nema mjesta zaklonjenog od ${res.alert.side}. Potraži luku ili marinu i stigni prije vjetra.</p>`
@@ -242,6 +552,34 @@ function renderFind(res, label) {
 }
 
 /* ---------------- jedna točka ---------------- */
+// Je li točka more prema OpenStreetMapu? Modeli dubine (~115 m) uz obalu miješaju kopno i more,
+// a OSM obala je precizna. Čita se boja jednog piksela OSM pločice zuma 17 (voda je #aad3df).
+// Vraća true/false, ili undefined ako se pločica ne može pročitati.
+async function osmWater(lat, lng) {
+  try {
+    const z = 17, n = 2 ** z, r = (lat * Math.PI) / 180;
+    const fx = ((lng + 180) / 360) * n, fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 2500); // bez odgovora: nastavi bez OSM provjere
+    const res = await fetch(`https://tile.openstreetmap.org/${z}/${Math.floor(fx)}/${Math.floor(fy)}.png`, { signal: ctl.signal });
+    const img = await createImageBitmap(await res.blob());
+    clearTimeout(timer);
+    // 7x7 piksela (~8 m), većina odlučuje: natpisi i oznake preko vode ne smiju je pretvoriti u kopno
+    const c = document.createElement("canvas");
+    c.width = c.height = 7;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 3 - Math.floor((fx % 1) * 256), 3 - Math.floor((fy % 1) * 256));
+    const px = g.getImageData(0, 0, 7, 7).data;
+    let water = 0, land = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const [R, G, B] = [px[i], px[i + 1], px[i + 2]];
+      if (Math.abs(R - 170) < 14 && Math.abs(G - 211) < 14 && Math.abs(B - 223) < 14) water++;
+      else if (B <= R + 5) land++; // kopnene boje OSM-a nisu plavkaste; plavkasti natpisi se ne broje
+    }
+    return water + land ? water > land : undefined;
+  } catch { return undefined; }
+}
+
 async function check(lat, lng) {
   const req = ++state.req;
   state.results.clearLayers();
@@ -251,7 +589,7 @@ async function check(lat, lng) {
   body.innerHTML = `${back()}<div class="loading"><div class="spinner"></div>Čitam dno, dubinu, zaklon i vjetar…</div>`;
   wireBack();
   let s;
-  try { s = await engine.checkSpot(lat, lng); } catch (e) {
+  try { s = await engine.checkSpot(lat, lng, { water: await osmWater(lat, lng) }); } catch (e) {
     if (req === state.req) { body.innerHTML = `${back()}<p class="tip">Provjera nije uspjela: ${esc(e.message)}</p>`; wireBack(); }
     return;
   }
@@ -263,13 +601,14 @@ async function check(lat, lng) {
 function showSpot(s, fromList) {
   if (fromList) { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14)); keepVisible(s.lat, s.lon); }
   pin(s.lat, s.lon, s.lvl);
+  barWind(s.weather);
   body.innerHTML = `${fromList ? `<button class="back" type="button" id="tolist">← Natrag na popis</button>` : back()}
     <div class="verdict ${s.lvl}">
       <div class="score" aria-label="Ocjena ${s.score} od 100">${s.score}</div>
       <div class="title">${s.title}</div>
       <div class="sub">${esc(s.reason)}</div>
     </div>
-    ${s.chain ? `<p class="chain"><b>${s.chain} m</b> lanca${s.depth != null ? ` · ${s.depth} m dubine` : ""}</p>` : ""}
+    ${s.chain ? `<p class="chain"><b>${s.chain} m</b> lanca${s.depth != null ? ` · ${depthLabel(s)} dubine` : ""}</p>` : ""}
     ${alertBox(s.weather?.alert, false)}
     ${state.me ? `<p class="from-me">${BOAT_SVG}${esc(fromMe(s.lat, s.lon).text)}</p>` : ""}
     <ul class="facts">${s.facts.map((f) => `
@@ -292,11 +631,124 @@ function showSpot(s, fromList) {
 
 async function share(s) {
   const url = `${location.origin}${location.pathname}#p=${s.lat.toFixed(4)},${s.lon.toFixed(4)}`;
-  const text = `${s.title} (${s.score}/100)${s.depth != null ? `, ${s.depth} m` : ""}${s.seabed ? `, ${s.seabed.toLowerCase()}` : ""}`;
+  const text = `${s.title} (${s.score}/100)${s.depth != null ? `, ${depthLabel(s)}` : ""}${s.seabed ? `, ${s.seabed.toLowerCase()}` : ""}`;
   try {
-    if (navigator.share) await navigator.share({ title: "Sigurno sidrište", text, url });
+    if (navigator.share) await navigator.share({ title: "eSidro", text, url });
     else { await navigator.clipboard.writeText(`${text}\n${url}`); toast("Poveznica kopirana"); }
   } catch { /* korisnik odustao */ }
+}
+
+/* ---------------- SOS: stvarne upute + DEMO slanje na server i simulirani VHF ---------------- */
+const NATURES = [["voda", "Prodor vode"], ["pozar", "Požar"], ["covjek", "Čovjek u moru"],
+  ["nasukavanje", "Nasukavanje"], ["kvar", "Kvar motora, brod pluta"], ["ostalo", "Drugo"]];
+
+function showSos() {
+  state.req++;
+  stopVhf();
+  const c = map.getCenter();
+  const w = state.me ? { ...state.me, from: "GPS tvog broda" } : { lat: c.lat, lon: c.lng, from: "sredina karte - za GPS pritisni gumb za lokaciju" };
+  pin(w.lat, w.lon, "bad");
+  body.innerHTML = `${back()}
+    <h2 class="sos-title">SOS - hitni slučaj na moru</h2>
+    <div class="sos-real" role="alert">
+      <b>Stvarna opasnost? Odmah:</b>
+      <ol>
+        <li><b>VHF kanal 16</b> - izgovori MAYDAY (postupak ispod)</li>
+        <li><b>DSC</b> - drži crveni gumb DISTRESS na radiju 5 s</li>
+        <li><a href="tel:195"><b>195</b></a> - traganje i spašavanje na moru (MRCC Rijeka)</li>
+        <li><a href="tel:112"><b>112</b></a> - jedinstveni broj za hitne slučajeve</li>
+      </ol>
+    </div>
+    <h3>MAYDAY na VHF 16 - opasnost za život ili brod</h3>
+    <ol class="sos-steps">
+      <li>„MAYDAY, MAYDAY, MAYDAY“</li>
+      <li>„Ovdje je …“ ime broda 3×, pozivni znak ili MMSI</li>
+      <li>„MAYDAY“ i ime broda još jednom</li>
+      <li>Položaj: stupnjevi i minute, ili udaljenost i smjer od poznate točke</li>
+      <li>Što se dogodilo i kakva pomoć treba</li>
+      <li>Broj osoba na brodu</li>
+      <li>„OVER“ - pa slušaj odgovor</li>
+    </ol>
+    <p class="tip">PAN-PAN ×3 umjesto MAYDAY kad je hitno, ali nema neposredne opasnosti za život (kvar, bolest).</p>
+    <p class="coords">Položaj: ${degMin(w.lat, 2, "N", "S")} ${degMin(w.lon, 3, "E", "W")} · ${esc(w.from)}</p>
+    <div class="sos-demo">
+      <div class="demo-tag">DEMO - ništa se ne šalje spasiocima ni na pravi radio</div>
+      <label>Ime broda <input id="sos-vessel" type="text" maxlength="30" value="Bura" autocomplete="off"></label>
+      <label>Što se dogodilo <select id="sos-nature">${NATURES.map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
+      <label>Osoba na brodu <input id="sos-people" type="number" min="1" max="99" value="2" inputmode="numeric"></label>
+      <button class="btn sos-hold" type="button" id="sos-send"><span class="fill"></span><span class="lbl">Drži 2 s za DEMO SOS</span></button>
+      <div id="sos-result" aria-live="polite"></div>
+    </div>`;
+  $("back").onclick = () => { stopVhf(); showHome(); };
+  holdToSend($("sos-send"), () => sendSos(w));
+}
+
+// Slanje tek nakon 2 s držanja, da se ne pošalje slučajnim dodirom
+function holdToSend(btn, done) {
+  let t = null;
+  const start = (e) => { if (btn.disabled || t || e.repeat) return; btn.classList.add("holding"); t = setTimeout(() => { t = null; btn.classList.remove("holding"); done(); }, 2000); };
+  const stop = () => { clearTimeout(t); t = null; btn.classList.remove("holding"); };
+  btn.addEventListener("pointerdown", start);
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(ev, stop);
+  btn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); start(e); } });
+  btn.addEventListener("keyup", stop);
+}
+
+async function sendSos(w) {
+  const btn = $("sos-send"), out = $("sos-result");
+  btn.disabled = true;
+  out.innerHTML = `<div class="loading"><div class="spinner"></div>Šaljem DEMO SOS na server…</div>`;
+  try {
+    const r = await fetch("api/sos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: w.lat, lon: w.lon, vessel: $("sos-vessel").value, nature: $("sos-nature").value, people: $("sos-people").value }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    out.innerHTML = `<ul class="sos-log">
+        <li class="ok">Server primio poruku · ${esc(j.id)} · ${new Date(j.receivedAt).toLocaleTimeString("hr-HR")}</li>
+        <li class="ok">Položaj ${esc(j.position)} · ${j.people} os.</li>
+        <li class="no">Proslijeđeno spasiocima: ne (demo)</li>
+        <li id="vhf-state">VHF kanal 16: spremno</li>
+      </ul>
+      <pre class="mayday">${j.mayday.map((l) => `<span>${esc(l)}</span>`).join("\n")}</pre>
+      <button class="btn primary" type="button" id="vhf">Emitiraj na VHF 16 (simulacija)</button>`;
+    $("vhf").onclick = () => (state.vhf ? stopVhf() : playVhf(j.spoken));
+    playVhf(j.spoken);
+  } catch (e) {
+    out.innerHTML = `<p class="tip">DEMO SOS nije poslan: ${esc(e.message)}</p>`;
+    btn.disabled = false;
+  }
+}
+
+// Simulirano VHF emitiranje: preglednik izgovori MAYDAY na engleskom (jezik pomorskog radija),
+// red po red sa stankom; položaj sporije. Trenutni red je istaknut u ispisu.
+function playVhf(lines) {
+  if (!("speechSynthesis" in window)) return toast("Preglednik ne podržava govor - poruka je ispisana iznad");
+  stopVhf();
+  const voices = speechSynthesis.getVoices();
+  const voice = voices.find((v) => v.lang === "en-GB" && /natural|google|daniel|serena/i.test(v.name))
+    ?? voices.find((v) => v.lang === "en-GB") ?? voices.find((v) => v.lang.startsWith("en")) ?? null;
+  const spans = [...document.querySelectorAll(".mayday span")];
+  state.vhf = true;
+  vhfUi(true);
+  lines.forEach((text, i) => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-GB"; u.voice = voice;
+    u.rate = /position/i.test(text) ? 0.7 : 0.85; // koordinate polako
+    u.onstart = () => spans.forEach((s, k) => s.classList.toggle("now", k === i));
+    if (i === lines.length - 1) u.onend = () => { state.vhf = false; vhfUi(false); };
+    u.onerror = () => { state.vhf = false; vhfUi(false); };
+    speechSynthesis.speak(u);
+  });
+}
+function stopVhf() {
+  if (state.vhf) { state.vhf = false; speechSynthesis.cancel(); }
+  vhfUi(false);
+}
+function vhfUi(on) {
+  const s = document.getElementById("vhf-state"), b = document.getElementById("vhf");
+  if (!on) document.querySelectorAll(".mayday span.now").forEach((x) => x.classList.remove("now"));
+  if (s) { s.className = on ? "tx" : ""; s.textContent = on ? "VHF kanal 16: EMITIRA (simulacija)…" : "VHF kanal 16: simulacija gotova - na pravom radiju sad slušaj odgovor"; }
+  if (b) b.textContent = on ? "Zaustavi emitiranje" : "Ponovi emitiranje (simulacija)";
 }
 
 /* ---------------- pomagala ---------------- */
@@ -311,12 +763,13 @@ function pin(lat, lng, lvl) {
 function clearPin() { if (state.marker) { map.removeLayer(state.marker); state.marker = null; } }
 
 const isPhone = () => window.innerWidth <= 720;
-const padTL = () => (isPhone() ? [20, 80] : [410, 80]);
+const barH = () => $("databar").offsetHeight;
+const padTL = () => (isPhone() ? [20, 80 + barH()] : [410, 80 + barH()]);
 function keepVisible(lat, lng) {
   if (!isPhone()) return;
   const size = map.getSize();
   const p = map.latLngToContainerPoint([lat, lng]);
-  if (p.y > size.y * 0.42 || p.y < 70) map.panBy([p.x - size.x / 2, p.y - size.y * 0.24], { animate: true });
+  if (p.y > size.y * 0.42 || p.y < 70 + barH()) map.panBy([p.x - size.x / 2, p.y - size.y * 0.24], { animate: true });
 }
 
 function toast(msg) {
@@ -328,7 +781,8 @@ function toast(msg) {
 function setHash(h) { history.replaceState(null, "", `${location.pathname}${location.search}${h ? `#${h}` : ""}`); }
 
 /* ---------------- događaji ---------------- */
-map.on("click", (e) => check(e.latlng.lat, e.latlng.lng));
+map.on("click", (e) => (state.marking && state.user ? showObsForm : check)(e.latlng.lat, e.latlng.lng));
+document.getElementById("sos").addEventListener("click", showSos);
 
 document.getElementById("search").addEventListener("submit", async (e) => {
   e.preventDefault();

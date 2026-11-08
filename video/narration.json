@@ -1,9 +1,9 @@
 [
   {"id": "s1", "text": "Svako ljeto tisuće brodova sidre na Jadranu. U nekim uvalama čak dvije trećine njih baci sidro ravno na posidoniju, koja raste samo centimetar godišnje."},
-  {"id": "s2", "text": "Sigurno sidrište spaja otvorene podatke o dnu, morskoj travi, dubini, zaklonu i vjetru, u jedan jednostavan odgovor."},
+  {"id": "s2", "text": "eSidro spaja otvorene podatke o dnu, morskoj travi, dubini, zaklonu i vjetru, u jedan jednostavan odgovor."},
   {"id": "s3", "text": "Upišeš mjesto, na primjer Pakleni otoci, i pritisneš jedan gumb. Za nekoliko sekundi dobiješ pet najboljih sidrišta, poredanih po zaklonu od vjetra koji dolazi noćas."},
   {"id": "s4", "text": "Za svako mjesto vidiš vrstu dna, dubinu, zaklon u osam smjerova i koliko lanca treba pustiti."},
   {"id": "s5", "text": "A dodirneš li livadu posidonije, aplikacija jasno kaže: ne sidri ovdje."},
   {"id": "s6", "text": "Isto znanje dostupno je i AI asistentima, preko MCP servera. Samo pitaš gdje sidriti večeras."},
-  {"id": "s7", "text": "Sigurno sidrište. Čuvaj more, spavaj mirno."}
+  {"id": "s7", "text": "eSidro. Čuvaj more, spavaj mirno."}
 ]
