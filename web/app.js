@@ -46,7 +46,19 @@ const map = L.map("map", { zoomControl: false, minZoom: 6, maxBounds: [[41.5, 11
 L.control.zoom({ position: "topright", zoomInTitle: "Približi", zoomOutTitle: "Udalji" }).addTo(map);
 L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19, className: "chart-land", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
+// Podloga kao pomorska karta: pojasevi dubine (0-2, 2-5, 5-10, 10-20, >20 m) i izobate iz EMODnet Bathymetry
+const DEPTH_BANDS = `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>emodnet:mean</Name><UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">`
+  + `<ColorMapEntry color="#f4f9fd" quantity="-20"/><ColorMapEntry color="#d6e8f6" quantity="-10"/><ColorMapEntry color="#b6d4ee" quantity="-5"/>`
+  + `<ColorMapEntry color="#94bfe5" quantity="-2"/><ColorMapEntry color="#7aaedc" quantity="0.5"/><ColorMapEntry color="#000000" opacity="0" quantity="100000"/>`
+  + `</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
+L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
+  layers: "emodnet:mean", sld_body: DEPTH_BANDS, interpolations: "bicubic", format: "image/png", transparent: true, opacity: 0.9,
+  attribution: "EMODnet Bathymetry",
+}).addTo(map);
+L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
+  layers: "emodnet:contours", format: "image/png", transparent: true,
 }).addTo(map);
 state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
   maxZoom: 18, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
@@ -84,7 +96,7 @@ engine.ready.then((d) => {
 }).catch((e) => toast(`Slojevi karte se nisu učitali: ${e.message}`));
 
 function syncLayers() {
-  const want = state.layerPrefs || { substrate: true, seagrass: true, seamarks: true };
+  const want = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true };
   for (const [k, layer] of Object.entries(state.layers)) {
     if (want[k]) layer.addTo(map); else map.removeLayer(layer);
   }
@@ -97,7 +109,7 @@ function showHome() {
   body.querySelector("#legend").innerHTML = [3, 2, 1, 0].map((h) =>
     `<li><span class="sw" style="background:${HOLD[h].color}"></span>${["Stijene i kamenje", "Šljunak / krupno", "Mulj / muljeviti pijesak", "Pijesak"][h]}<small>${HOLD[h].word}</small></li>`).join("")
     + `<li><span class="sw grass"></span>Livada morske trave<small>zabranjeno</small></li>`;
-  const prefs = state.layerPrefs || { substrate: true, seagrass: true, seamarks: true };
+  const prefs = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true };
   body.querySelectorAll("[data-layer]").forEach((cb) => {
     cb.checked = !!prefs[cb.dataset.layer];
     cb.addEventListener("change", () => {
@@ -159,7 +171,7 @@ function fromMe(lat, lon) {
   const x = Math.cos(state.me.lat * toR) * Math.sin(lat * toR) - Math.sin(state.me.lat * toR) * Math.cos(lat * toR) * Math.cos(dLon);
   const brg = (Math.atan2(y, x) / toR + 360) % 360;
   const nm = km / 1.852;
-  return { km, text: `${km < 1 ? `${Math.round(km * 1000)} m` : `${num1(km)} km`} (${num1(nm)} NM) ${windOf(brg).side} od tebe` };
+  return { km, brg, text: `${km < 1 ? `${Math.round(km * 1000)} m` : `${num1(km)} km`} (${num1(nm)} NM) ${windOf(brg).side} od tebe` };
 }
 
 function setMe(lat, lon, acc) {
@@ -168,7 +180,38 @@ function setMe(lat, lon, acc) {
   if (state.meMarker) state.meMarker.setLatLng([lat, lon]);
   else state.meMarker = L.marker([lat, lon], { icon, keyboard: false, zIndexOffset: 900, title: "Tvoj brod" }).addTo(map);
   state.meMarker.bindTooltip(`Tvoj brod${acc ? ` (±${Math.round(acc)} m)` : ""}`);
+  updateBar(map.getCenter(), false);
 }
+
+/* ---------------- traka s podacima (kao na ploteru) ---------------- */
+const $ = (id) => document.getElementById(id);
+// 43.1702 -> 43°10,212'N (stupnjevi i decimalne minute, kao na pomorskim kartama)
+const degMin = (v, pad, pos, neg) => {
+  const a = Math.abs(v), d = Math.floor(a);
+  return `${String(d).padStart(pad, "0")}°${((a - d) * 60).toFixed(3).padStart(6, "0").replace(".", ",")}'${v >= 0 ? pos : neg}`;
+};
+function updateBar(ll, cursor) {
+  $("db-pos-k").textContent = cursor ? "KURSOR" : "SREDINA";
+  $("db-lat").textContent = degMin(ll.lat, 2, "N", "S");
+  $("db-lon").textContent = degMin(ll.lng, 3, "E", "W");
+  const m = fromMe(ll.lat, ll.lng);
+  const nm = m && m.km / 1.852;
+  $("db-dist").textContent = m ? `${nm.toFixed(nm < 10 ? 2 : 1).replace(".", ",")} NM` : "-";
+  $("db-brg").textContent = m ? `${String(Math.round(m.brg) % 360).padStart(3, "0")}°` : "-";
+}
+function barWind(w) {
+  if (!w) return;
+  $("db-wind").innerHTML = `${Math.round(w.speed)} čv <span class="wind-arrow" style="transform:rotate(${w.dir + 180}deg)">↑</span>`;
+  $("db-wind").parentElement.title = `Vjetar sada: ${windOf(w.dir).name}, ${Math.round(w.speed)} čv`;
+}
+// Na računalu prati miš, na mobitelu sredinu karte
+let cursorOn = false;
+if (matchMedia("(hover: hover)").matches) {
+  map.on("mousemove", (e) => { cursorOn = true; updateBar(e.latlng, true); });
+  map.on("mouseout", () => { cursorOn = false; updateBar(map.getCenter(), false); });
+}
+map.on("move", () => { if (!cursorOn) updateBar(map.getCenter(), false); });
+updateBar(map.getCenter(), false);
 
 /* ---------------- vrijeme: upozorenje i prognoza po 3 h ---------------- */
 function alertBox(al, forList) {
@@ -222,6 +265,7 @@ function renderFind(res, label) {
     }).on("click", () => showSpot(s, true)));
   });
   const w = res.weather;
+  barWind(w);
   const windLine = w ? `Vjetar sada ${Math.round(w.speed)} čv, udari do ${Math.round(Math.max(w.gust, w.gustMax24 ?? w.gustMax12 ?? 0))} čv u 24 h${res.wind ? ` · najjače puše ${res.wind}` : ""}${res.widened ? ` · krug proširen na ${res.radiusKm} km` : ""}` : "";
   body.innerHTML = `${back()}<h2>${label ? esc(label) : "Sidrišta u blizini"}</h2>
     ${alertBox(res.alert, true)}
@@ -263,6 +307,7 @@ async function check(lat, lng) {
 function showSpot(s, fromList) {
   if (fromList) { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14)); keepVisible(s.lat, s.lon); }
   pin(s.lat, s.lon, s.lvl);
+  barWind(s.weather);
   body.innerHTML = `${fromList ? `<button class="back" type="button" id="tolist">← Natrag na popis</button>` : back()}
     <div class="verdict ${s.lvl}">
       <div class="score" aria-label="Ocjena ${s.score} od 100">${s.score}</div>
@@ -311,12 +356,13 @@ function pin(lat, lng, lvl) {
 function clearPin() { if (state.marker) { map.removeLayer(state.marker); state.marker = null; } }
 
 const isPhone = () => window.innerWidth <= 720;
-const padTL = () => (isPhone() ? [20, 80] : [410, 80]);
+const barH = () => $("databar").offsetHeight;
+const padTL = () => (isPhone() ? [20, 80 + barH()] : [410, 80 + barH()]);
 function keepVisible(lat, lng) {
   if (!isPhone()) return;
   const size = map.getSize();
   const p = map.latLngToContainerPoint([lat, lng]);
-  if (p.y > size.y * 0.42 || p.y < 70) map.panBy([p.x - size.x / 2, p.y - size.y * 0.24], { animate: true });
+  if (p.y > size.y * 0.42 || p.y < 70 + barH()) map.panBy([p.x - size.x / 2, p.y - size.y * 0.24], { animate: true });
 }
 
 function toast(msg) {
