@@ -337,3 +337,31 @@ details.more .legend { margin-top: 12px; }
 @media (prefers-reduced-motion: reduce) { .sos-log .tx { animation: none; } }
 .mayday { font: 500 12.5px/1.5 var(--font-mono); background: #0b1118; color: #9fe39f; padding: 10px 12px; border-radius: 8px; white-space: pre-wrap; margin: 0 0 10px; }
 .mayday span.now { background: #9fe39f; color: #0b1118; }
+
+/* ---------- opažanja na moru (demo) ---------- */
+.obs-ico { font-size: 22px; line-height: 1; width: 26px; text-align: center; flex: none; }
+.obs-box { background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px 12px; display: grid; gap: 10px; }
+.obs-box p { display: flex; align-items: center; gap: 12px; margin: 0; }
+.obs-box p > span:nth-child(2) { flex: 1; min-width: 0; display: grid; }
+.obs-box small { color: var(--ink-soft); font-size: 13px; }
+.obs-box .btn { justify-content: center; }
+.obs-box .hint { margin: 0; }
+.linkish { background: none; border: 0; padding: 4px; color: var(--sea); font: 600 14px var(--font-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.obs-login { grid-template-columns: 1fr; }
+.obs-login input { font-family: var(--font-body); }
+#map.marking, #map.marking .leaflet-interactive { cursor: crosshair; }
+.pin.obs { background: var(--accent); }
+.obs-pin { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; line-height: 1;
+  background: #fff; border: 2px solid var(--sea); box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+.mono { font-family: var(--font-mono); }
+.obs-form { display: grid; gap: 12px; }
+.obs-kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.obs-kinds label { cursor: pointer; }
+.obs-kinds input { position: absolute; opacity: 0; pointer-events: none; }
+.obs-kinds span { display: grid; justify-items: center; gap: 4px; text-align: center; padding: 10px 6px; border-radius: 12px;
+  border: 2px solid var(--line); background: var(--paper-2); font: 500 13px var(--font-body); color: var(--ink); min-height: 72px; align-content: center; }
+.obs-kinds i { font-style: normal; font-size: 24px; line-height: 1; }
+.obs-kinds input:checked + span { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--paper-2)); }
+.obs-kinds input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+.obs-note { display: grid; gap: 4px; font: 600 13px var(--font-body); color: var(--ink-soft); }
+.obs-note textarea { font: 400 16px var(--font-body); padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper-2); color: var(--ink); resize: vertical; }
