@@ -61,8 +61,16 @@ L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
   layers: "emodnet:contours", format: "image/png", transparent: true,
 }).addTo(map);
 state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
-  maxZoom: 18, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
+  maxZoom: 18, zIndex: 3, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
 });
+// Zračni snimak: DGU digitalni ortofoto 1:5000 (data.gov.hr, otvorena dozvola). Svaki ciklus snima pola Hrvatske,
+// pa se slažu dva. Veće pločice jer javna usluga stavlja vodeni žig na svaku sliku.
+const dof = (years) => L.tileLayer.wms(`https://geoportal.dgu.hr/services/inspire/orthophoto_${years}/wms`, {
+  layers: "OI.OrthoimageCoverage", format: "image/png", transparent: true, version: "1.3.0",
+  tileSize: 1024, zoomOffset: -2, minZoom: 11, zIndex: 2,
+  attribution: 'Ortofoto &copy; <a href="https://geoportal.dgu.hr">DGU</a>',
+});
+state.layers.aerial = L.layerGroup([dof("2021_2022"), dof("2023_2024")]);
 state.layers.depth = L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
   layers: "emodnet:mean_multicolour", format: "image/png", transparent: true, opacity: 0.55, attribution: "EMODnet Bathymetry",
 });
