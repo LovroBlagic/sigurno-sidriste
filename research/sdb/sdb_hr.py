@@ -128,9 +128,10 @@ def emod_grid(tile_bounds_ll):
     return P.fetch(url, path)
 
 
-def tile_ratio(tile, scene, sea):
-    """Stumpf ratio (5x5 NaN-median) for coastal Croatian water of one tile; cached as uint16 GeoTIFF."""
-    out = DATA / f"{scene}_ratio.tif"
+def tile_ratio(tile, scene, sea, suffix=""):
+    """Stumpf ratio (5x5 NaN-median) for coastal Croatian water of one tile; cached as uint16 GeoTIFF.
+    suffix: separate cache for a different `sea` polygon (sdb_depth_tiles.py uses a buffered one)."""
+    out = DATA / f"{scene}_ratio{suffix}.tif"
     if out.exists():
         with rasterio.open(out) as ds:
             r = ds.read(1)
