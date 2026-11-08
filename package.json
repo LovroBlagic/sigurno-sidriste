@@ -20,5 +20,11 @@
   "devDependencies": {
     "playwright": "1.56.1"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": "Lovro Blagić",
+  "contributors": [
+    "Frane Andrić",
+    "Fabijan Pitlović",
+    "Matej Ban"
+  ]
 }

@@ -89,6 +89,10 @@ Vercel projekt `sigurno-sidriste` povezan je s GitHub repozitorijem: svaki push 
 - `scripts/download_data.py`, `scripts/build_layers.py` - priprema podataka (~31 MB → ~1,3 MB)
 - `web/openapi.json` - OpenAPI opis API-ja · `docs/ARHITEKTURA.md` - arhitektura, izvori, licence, preduvjeti
 
+## Tim
+
+Lovro Blagić, Frane Andrić, Fabijan Pitlović, Matej Ban
+
 ## Licenca
 
 Kod: [MIT](LICENSE). Podaci zadržavaju licence svojih izvora (EMODnet CC BY 4.0, OpenStreetMap ODbL, Open-Meteo CC BY 4.0, Bioportal) - vidi [docs/ARHITEKTURA.md](docs/ARHITEKTURA.md#4-izvori-podataka-i-licence).
