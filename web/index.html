@@ -18,6 +18,10 @@
     <filter id="chart-land-fx" color-interpolation-filters="sRGB">
       <feColorMatrix type="matrix" values="1.15 0 0 0 0  0 1 0 0 -0.02  -0.95 0 1.75 0 0  0 0 0 1 0"/>
     </filter>
+    <!-- Isto, ali OSM voda (#aad3df, plava jača od crvene) postaje prozirna: alfa = 1,6 - 8·(B - R) -->
+    <filter id="chart-land-mask-fx" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="1.15 0 0 0 0  0 1 0 0 -0.02  -0.95 0 1.75 0 0  8 0 -8 0 1.6"/>
+    </filter>
   </svg>
 
   <div id="databar" class="databar" aria-label="Podaci za plovidbu">
@@ -74,7 +78,7 @@
         <label><input type="checkbox" data-layer="seamarks" checked> Pomorske oznake (OpenSeaMap)</label>
         <label><input type="checkbox" data-layer="sightings" checked> Opažanja nautičara (dupini, meduze, otpad...)</label>
         <label><input type="checkbox" data-layer="sdb" checked> Pliće od 4 m sa satelita (eksperimentalno, dio obale)</label>
-        <label><input type="checkbox" data-layer="vessels"> Brodovi uživo (AIS, VesselFinder)</label>
+        <label><input type="checkbox" data-layer="vessels"> Brodovi uživo (AIS)</label>
       </fieldset>
     </details>
   </template>

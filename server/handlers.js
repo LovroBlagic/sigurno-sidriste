@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { engine } from "./engine.js";
 import { createMcpServer } from "../mcp/tools.js";
 import { simulatedWeather } from "../web/core.js";
+import { hasKey, vesselsIn } from "./vessels.js";
 
 export const send = (res, code, obj, cache = "no-store") => {
   res.statusCode = code;
@@ -23,6 +24,13 @@ const urlOf = (req) => new URL(req.url, `http://${req.headers.host || "localhost
 export async function handleApi(route, req, res) {
   const u = urlOf(req);
   try {
+    if (route === "vessels") {
+      // ?bbox=s,w,n,e (kadar karte); bez ključa 503 pa web prikazuje VesselFinder prozor
+      if (!hasKey()) return send(res, 503, { error: "AIS nije podešen (AISSTREAM_KEY)" });
+      const [s, w, n, e] = (u.searchParams.get("bbox") || "").split(",").map(Number);
+      if (![s, w, n, e].every(Number.isFinite) || n - s > 3 || e - w > 4) return send(res, 400, { error: "Zadaj bbox=s,w,n,e (najviše 3x4 stupnja)" });
+      return send(res, 200, { vessels: await vesselsIn({ s, w, n, e }) });
+    }
     if (route === "geocode") {
       const q = u.searchParams.get("q")?.trim();
       if (!q) return send(res, 400, { error: "Nedostaje q" });
@@ -40,7 +48,11 @@ export async function handleApi(route, req, res) {
     const boat = { draft: u.searchParams.get("gaz"), chain: u.searchParams.get("lanac"), length: u.searchParams.get("duljina") };
     // ?sim=bura|jugo: simulirana prognoza za testiranje i demonstraciju (rezultat nosi weather.simulated = true)
     const weather = simulatedWeather(u.searchParams.get("sim")) ?? undefined;
-    if (route === "check") return send(res, 200, await engine.checkSpot(where.lat, where.lon, { boat, weather }));
+    if (route === "topo") return send(res, 200, await engine.topoAt(where.lon, where.lat), "public, max-age=86400");
+    // ?water=1|0: je li točka more prema OSM obali (web aplikacija to čita iz OSM pločice)
+    const w = u.searchParams.get("water");
+    const water = w === "1" ? true : w === "0" ? false : undefined;
+    if (route === "check") return send(res, 200, await engine.checkSpot(where.lat, where.lon, { boat, weather, water }));
     if (route === "find") {
       const radiusKm = Math.min(8, Math.max(1, parseFloat(u.searchParams.get("r")) || 4));
       return send(res, 200, { name, ...(await engine.findSpots(where.lat, where.lon, { radiusKm, max: 5, boat, weather })) });

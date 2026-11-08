@@ -7,6 +7,8 @@
  *   /mcp         MCP (Streamable HTTP) za ChatGPT, Claude i druge AI asistente
  */
 import http from "node:http";
+// Lokalni tajni ključevi (npr. AISSTREAM_KEY) iz .env, ako postoji; .env je u .gitignore
+try { process.loadEnvFile(); } catch { /* nema .env */ }
 import { readFile, stat } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";

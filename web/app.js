@@ -31,7 +31,7 @@ const boatLine = (b) => [b.draft && `gaz ${num1(b.draft)} m`, b.chain && `lanac 
 const engine = {
   ready: Promise.all(["substrate", "seagrass", "natura2000", "protected", "navmarks"].map(layer))
     .then(([substrate, seagrass, natura2000, protectedAreas, navmarks]) => ({ substrate, seagrass, natura2000, protectedAreas, navmarks })),
-  checkSpot: (lat, lon) => api("check", { lat, lon, ...boatParams() }),
+  checkSpot: (lat, lon, { water } = {}) => api("check", { lat, lon, ...boatParams(), ...(water != null ? { water: water ? 1 : 0 } : {}) }),
   findSpots: (lat, lon, { radiusKm }) => api("find", { lat, lon, r: radiusKm, ...boatParams() }),
   geocode: (q) => api("geocode", { q }).catch((e) => (/pronaći/.test(e.message) ? null : Promise.reject(e))),
 };
@@ -64,7 +64,12 @@ L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
 
 // Pregled (zum < 11): samo more, kopno jednobojno (pozadina #map). Od zuma 11 detaljna obala iz OSM-a.
 const base = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  minZoom: 11, maxZoom: 19, className: "chart-land", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  minZoom: 11, maxZoom: 19, zIndex: 0, className: "chart-land", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
+// EMODnet obala je mreža ~115 m, pa plava dubina zna prijeći na kopno. Iste OSM pločice još jednom IZNAD dubine,
+// s vodom prozirnom (filter #chart-land-mask-fx): kopno uvijek prekriva dubinu, a dubina se vidi samo na moru.
+const landMask = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  minZoom: 11, maxZoom: 19, zIndex: 3, className: "chart-land-mask",
 }).addTo(map);
 
 // Dubina: unaprijed izračunate statične pločice (scripts/build_depth_tiles.mjs), zum 7-12; bliže ih preglednik povećava.
@@ -80,7 +85,7 @@ const DepthTiles = L.TileLayer.extend({
 });
 // ?v= je oznaka izrade iz index.json: pločice se dugo pamte, a nova izrada dobije nove adrese
 const depth = new DepthTiles("tiles/depth/{z}/{x}/{y}.png?v={v}", {
-  index: {}, v: "", minZoom: 7, maxNativeZoom: 12, maxZoom: 19, bounds: TILE_BOUNDS, attribution: "EMODnet Bathymetry",
+  index: {}, v: "", zIndex: 1, minZoom: 7, maxNativeZoom: 12, maxZoom: 19, bounds: TILE_BOUNDS, attribution: "EMODnet Bathymetry",
 });
 fetch("tiles/depth/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms }) => {
   for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
@@ -105,7 +110,7 @@ L.Control.SatToggle = L.Control.extend({
     };
     b.onclick = () => {
       state.satellite = !state.satellite;
-      for (const l of [depth, base]) state.satellite ? map.removeLayer(l) : l.addTo(map);
+      for (const l of [depth, base, landMask]) state.satellite ? map.removeLayer(l) : l.addTo(map);
       state.satellite ? satellite.addTo(map) : map.removeLayer(satellite);
       document.getElementById("map").classList.toggle("sat", state.satellite);
       draw();
@@ -118,7 +123,7 @@ new L.Control.SatToggle().addTo(map);
 
 const DEFAULT_LAYERS = { substrate: false, seagrass: true, protected: true, navmarks: true, natura: false, seamarks: true, sightings: true, sdb: true, vessels: false };
 state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
-  maxZoom: 18, zIndex: 3, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
+  maxZoom: 18, zIndex: 4, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
 });
 map.createPane("grass").style.zIndex = 420;
 map.createPane("natura").style.zIndex = 410;
@@ -154,7 +159,7 @@ engine.ready.then((d) => {
 fetch("tiles/sdb/index.json", { cache: "no-cache" }).then((r) => r.json()).then(({ v, zooms, meta }) => {
   for (const t of Object.values(zooms)) t.bytes = Uint8Array.from(atob(t.bits), (ch) => ch.charCodeAt(0));
   state.layers.sdb = new DepthTiles("tiles/sdb/{z}/{x}/{y}.png?v={v}", {
-    index: zooms, v, minZoom: 8, maxNativeZoom: 13, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 4, className: "sdb-layer",
+    index: zooms, v, minZoom: 8, maxNativeZoom: 13, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 2, className: "sdb-layer",
     attribution: "Plićaci: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
   }).on("add", () => toast(`Narančasto: vjerojatno pliće od ${meta.shallow_below_m} m (satelit; u provjerenim područjima uhvati ≥${Math.round(meta.catch_min * 100)} % takvih mjesta). Nije za navigaciju.`));
   syncLayers();
@@ -183,7 +188,47 @@ const Vessels = L.Layer.extend({
     this._box.querySelector("iframe").src = `brodovi.html?lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}&z=${z}`;
   },
 });
-state.layers.vessels = new Vessels();
+// Brodovi na našoj karti: AIS iz aisstream.io preko /api/vessels (ključ na serveru). Strelica = smjer kretanja.
+// Ako server nema ključ (503), prikaže se VesselFinder prozor (gore).
+const AisLayer = L.LayerGroup.extend({
+  onAdd(m) {
+    L.LayerGroup.prototype.onAdd.call(this, m);
+    this._fallback = null;
+    this._move = () => { clearTimeout(this._t); this._t = setTimeout(() => this._load(), 500); };
+    m.on("moveend", this._move);
+    this._timer = setInterval(() => this._load(), 30e3);
+    this._load();
+  },
+  onRemove(m) {
+    m.off("moveend", this._move); clearTimeout(this._t); clearInterval(this._timer);
+    if (this._fallback) { m.removeLayer(this._fallback); this._fallback = null; }
+    L.LayerGroup.prototype.onRemove.call(this, m);
+  },
+  async _load() {
+    const m = this._map;
+    if (!m || this._fallback) return;
+    if (m.getZoom() < 9) { this.clearLayers(); return; } // preširoko: previše brodova
+    const b = m.getBounds();
+    const r = await fetch(`api/vessels?bbox=${[b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map((x) => x.toFixed(3))}`);
+    if (r.status === 503) { this._fallback = new Vessels().addTo(m); return; }
+    if (!r.ok || this._map !== m) return;
+    const { vessels } = await r.json();
+    this.clearLayers();
+    for (const v of vessels) {
+      const dir = v.heading ?? v.cog;
+      const moving = v.sog > 0.5 && dir != null;
+      const icon = L.divIcon({
+        className: "ais-ship", iconSize: [22, 22],
+        html: moving ? `<svg viewBox="0 0 18 18" style="transform:rotate(${dir}deg)"><path d="M9 1 15 16 9 12.5 3 16Z"/></svg>`
+          : `<svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4.5"/></svg>`,
+      });
+      L.marker([v.lat, v.lon], { icon, keyboard: false, zIndexOffset: 500 })
+        .bindPopup(`<b>${esc(v.name || `MMSI ${v.mmsi}`)}</b><br>${v.sog != null ? `${num1(v.sog)} čv` : "brzina nepoznata"}${v.cog != null ? ` · kurs ${Math.round(v.cog)}°` : ""}<br><small>AIS prije ${v.age < 90 ? `${v.age} s` : `${Math.round(v.age / 60)} min`} · aisstream.io</small>`)
+        .addTo(this);
+    }
+  },
+});
+state.layers.vessels = new AisLayer();
 
 function syncLayers() {
   const want = state.layerPrefs || DEFAULT_LAYERS;
@@ -491,6 +536,34 @@ function renderFind(res, label) {
 }
 
 /* ---------------- jedna točka ---------------- */
+// Je li točka more prema OpenStreetMapu? Modeli dubine (~115 m) uz obalu miješaju kopno i more,
+// a OSM obala je precizna. Čita se boja jednog piksela OSM pločice zuma 17 (voda je #aad3df).
+// Vraća true/false, ili undefined ako se pločica ne može pročitati.
+async function osmWater(lat, lng) {
+  try {
+    const z = 17, n = 2 ** z, r = (lat * Math.PI) / 180;
+    const fx = ((lng + 180) / 360) * n, fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 2500); // bez odgovora: nastavi bez OSM provjere
+    const res = await fetch(`https://tile.openstreetmap.org/${z}/${Math.floor(fx)}/${Math.floor(fy)}.png`, { signal: ctl.signal });
+    const img = await createImageBitmap(await res.blob());
+    clearTimeout(timer);
+    // 7x7 piksela (~8 m), većina odlučuje: natpisi i oznake preko vode ne smiju je pretvoriti u kopno
+    const c = document.createElement("canvas");
+    c.width = c.height = 7;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 3 - Math.floor((fx % 1) * 256), 3 - Math.floor((fy % 1) * 256));
+    const px = g.getImageData(0, 0, 7, 7).data;
+    let water = 0, land = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const [R, G, B] = [px[i], px[i + 1], px[i + 2]];
+      if (Math.abs(R - 170) < 14 && Math.abs(G - 211) < 14 && Math.abs(B - 223) < 14) water++;
+      else if (B <= R + 5) land++; // kopnene boje OSM-a nisu plavkaste; plavkasti natpisi se ne broje
+    }
+    return water + land ? water > land : undefined;
+  } catch { return undefined; }
+}
+
 async function check(lat, lng) {
   const req = ++state.req;
   state.results.clearLayers();
@@ -500,7 +573,7 @@ async function check(lat, lng) {
   body.innerHTML = `${back()}<div class="loading"><div class="spinner"></div>Čitam dno, dubinu, zaklon i vjetar…</div>`;
   wireBack();
   let s;
-  try { s = await engine.checkSpot(lat, lng); } catch (e) {
+  try { s = await engine.checkSpot(lat, lng, { water: await osmWater(lat, lng) }); } catch (e) {
     if (req === state.req) { body.innerHTML = `${back()}<p class="tip">Provjera nije uspjela: ${esc(e.message)}</p>`; wireBack(); }
     return;
   }
