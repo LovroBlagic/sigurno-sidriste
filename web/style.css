@@ -337,3 +337,6 @@ details.more .legend { margin-top: 12px; }
 @media (prefers-reduced-motion: reduce) { .sos-log .tx { animation: none; } }
 .mayday { font: 500 12.5px/1.5 var(--font-mono); background: #0b1118; color: #9fe39f; padding: 10px 12px; border-radius: 8px; white-space: pre-wrap; margin: 0 0 10px; }
 .mayday span.now { background: #9fe39f; color: #0b1118; }
+
+/* eksperimentalni sloj plićaka (research/sdb): oštri 10 m pikseli */
+.sdb-layer { image-rendering: pixelated; }

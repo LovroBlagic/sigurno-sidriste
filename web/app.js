@@ -148,6 +148,21 @@ engine.ready.then((d) => {
   syncLayers();
 }).catch((e) => toast(`Slojevi karte se nisu učitali: ${e.message}`));
 
+// Eksperimentalno: plićaci procijenjeni iz Sentinel-2, kalibrirano na ICESat-2, samo oko Plavnika (research/sdb)
+fetch("data/sdb_plavnik_plicak.json").then((r) => r.json()).then((m) => {
+  const b = L.latLngBounds(m.bounds);
+  state.layers.sdb = L.imageOverlay("data/sdb_plavnik_plicak.png", b, {
+    className: "sdb-layer", interactive: false,
+    attribution: "Plićaci: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
+  }).on("add", () => {
+    if (map.getZoom() < 11 || !map.getBounds().contains(b.getCenter())) {
+      map.flyToBounds(b, innerWidth > 720 ? { paddingTopLeft: [400, 130] } : {});
+    }
+    toast(`Narančasto: satelit procjenjuje pliće od ${m.shallow_below_m} m (±${m.rmse_m} m). Nije za navigaciju.`);
+  });
+  syncLayers();
+}).catch(() => {});
+
 function syncLayers() {
   const want = state.layerPrefs || { substrate: false, seagrass: true, seamarks: true };
   for (const [k, layer] of Object.entries(state.layers)) {
