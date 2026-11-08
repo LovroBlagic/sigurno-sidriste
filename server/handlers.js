@@ -59,13 +59,14 @@ const NATURE = {
   voda: "TAKING ON WATER", pozar: "FIRE ON BOARD", covjek: "MAN OVERBOARD",
   nasukavanje: "AGROUND", kvar: "ENGINE FAILURE, DRIFTING", ostalo: "IN DISTRESS",
 };
-const DIGITS = ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINER"];
-const spell = (s) => [...s].map((c) => (c === "." ? "DECIMAL" : DIGITS[+c])).join(" ");
+// Za govor: znamenka po znamenka sa zarezima (sintetizator napravi stanku), malim slovima da ih ne sriče
+const DIGITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "niner"];
+const spell = (s) => [...s].map((c) => (c === "." ? "decimal" : DIGITS[+c])).join(", ");
 // 44.9703 -> 44°58.2'N (radio: stupnjevi i minute s jednom decimalom)
 function radioPos(v, pad, pos, neg) {
   const a = Math.round(Math.abs(v) * 600) / 600, d = Math.floor(a), m = ((a - d) * 60).toFixed(1).padStart(4, "0"); // zaokruži na 0,1' prije dijeljenja (bez 60.0')
   const deg = String(d).padStart(pad, "0"), side = v >= 0 ? pos : neg;
-  return { text: `${deg}°${m}'${side}`, spoken: `${spell(deg)} DEGREES ${spell(m)} MINUTES ${{ N: "NORTH", S: "SOUTH", E: "EAST", W: "WEST" }[side]}` };
+  return { text: `${deg}°${m}'${side}`, spoken: `${spell(deg)} degrees, ${spell(m)} minutes ${{ N: "north", S: "south", E: "east", W: "west" }[side]}` };
 }
 
 export async function handleSos(req, res) {
@@ -77,19 +78,24 @@ export async function handleSos(req, res) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return send(res, 400, { error: "Nedostaje položaj" });
     const nature = NATURE[b.nature] ? b.nature : "ostalo";
     const people = Math.min(99, Math.max(1, parseInt(b.people, 10) || 1));
-    const vessel = String(b.vessel || "").replace(/[^\p{L}\p{N} .-]/gu, "").trim().slice(0, 30).toUpperCase() || "SIGURNO SIDRISTE";
+    const vessel = String(b.vessel || "").replace(/[^\p{L}\p{N} .-]/gu, "").trim().slice(0, 30).toUpperCase() || "BURA";
     const la = radioPos(lat, 2, "N", "S"), lo = radioPos(lon, 3, "E", "W");
     const id = `DEMO-${Date.now().toString(36).toUpperCase()}`;
-    const lines = (pos, persons) => [
+    const v = vessel.toLowerCase();
+    const mayday = [
       "MAYDAY, MAYDAY, MAYDAY", `THIS IS ${vessel}, ${vessel}, ${vessel}`, `MAYDAY ${vessel}`,
-      `MY POSITION IS ${pos}`, NATURE[nature], persons, "I REQUIRE IMMEDIATE ASSISTANCE", "OVER",
+      `MY POSITION IS ${la.text} ${lo.text}`, NATURE[nature], `${people} PERSONS ON BOARD`, "I REQUIRE IMMEDIATE ASSISTANCE", "OVER",
     ];
-    console.log(`[DEMO SOS] ${id} ${la.text} ${lo.text} ${nature}, ${people} osoba - NIJE proslijeđeno nikome`);
+    // isti redovi za govor; položaj u dva dijela (širina, pa dužina) da se lakše razumije
+    const spoken = [
+      "Mayday, mayday, mayday.", `This is ${v}, ${v}, ${v}.`, `Mayday, ${v}.`,
+      `My position is: ${la.spoken}. ... ${lo.spoken}.`, `${NATURE[nature].toLowerCase()}.`,
+      `${spell(String(people))} persons on board.`, "I require immediate assistance.", "Over.",
+    ];
+    console.log(`[DEMO SOS] ${id} ${vessel} ${la.text} ${lo.text} ${nature}, ${people} osoba - NIJE proslijeđeno nikome`);
     send(res, 200, {
       demo: true, forwarded: false, id, receivedAt: new Date().toISOString(),
-      position: `${la.text} ${lo.text}`, nature, people, vessel,
-      mayday: lines(`${la.text} ${lo.text}`, `${people} PERSONS ON BOARD`),
-      spoken: lines(`${la.spoken}, ${lo.spoken}`, `${spell(String(people))} PERSONS ON BOARD`),
+      position: `${la.text} ${lo.text}`, nature, people, vessel, mayday, spoken,
     });
   } catch {
     if (!res.headersSent) send(res, 400, { error: "Neispravan zahtjev" });

@@ -432,6 +432,7 @@ function showSos() {
     <p class="coords">Položaj: ${degMin(w.lat, 2, "N", "S")} ${degMin(w.lon, 3, "E", "W")} · ${esc(w.from)}</p>
     <div class="sos-demo">
       <div class="demo-tag">DEMO - ništa se ne šalje spasiocima ni na pravi radio</div>
+      <label>Ime broda <input id="sos-vessel" type="text" maxlength="30" value="Bura" autocomplete="off"></label>
       <label>Što se dogodilo <select id="sos-nature">${NATURES.map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
       <label>Osoba na brodu <input id="sos-people" type="number" min="1" max="99" value="2" inputmode="numeric"></label>
       <button class="btn sos-hold" type="button" id="sos-send"><span class="fill"></span><span class="lbl">Drži 2 s za DEMO SOS</span></button>
@@ -458,7 +459,7 @@ async function sendSos(w) {
   out.innerHTML = `<div class="loading"><div class="spinner"></div>Šaljem DEMO SOS na server…</div>`;
   try {
     const r = await fetch("api/sos", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lat: w.lat, lon: w.lon, nature: $("sos-nature").value, people: $("sos-people").value }) });
+      body: JSON.stringify({ lat: w.lat, lon: w.lon, vessel: $("sos-vessel").value, nature: $("sos-nature").value, people: $("sos-people").value }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     out.innerHTML = `<ul class="sos-log">
@@ -467,7 +468,7 @@ async function sendSos(w) {
         <li class="no">Proslijeđeno spasiocima: ne (demo)</li>
         <li id="vhf-state">VHF kanal 16: spremno</li>
       </ul>
-      <pre class="mayday">${j.mayday.map(esc).join("\n")}</pre>
+      <pre class="mayday">${j.mayday.map((l) => `<span>${esc(l)}</span>`).join("\n")}</pre>
       <button class="btn primary" type="button" id="vhf">Emitiraj na VHF 16 (simulacija)</button>`;
     $("vhf").onclick = () => (state.vhf ? stopVhf() : playVhf(j.spoken));
     playVhf(j.spoken);
@@ -477,17 +478,26 @@ async function sendSos(w) {
   }
 }
 
-// Simulirano VHF emitiranje: preglednik izgovori MAYDAY na engleskom (jezik pomorskog radija)
+// Simulirano VHF emitiranje: preglednik izgovori MAYDAY na engleskom (jezik pomorskog radija),
+// red po red sa stankom; položaj sporije. Trenutni red je istaknut u ispisu.
 function playVhf(lines) {
   if (!("speechSynthesis" in window)) return toast("Preglednik ne podržava govor - poruka je ispisana iznad");
   stopVhf();
-  const u = new SpeechSynthesisUtterance(lines.join(". "));
-  u.lang = "en-GB"; u.rate = 0.9;
-  u.voice = speechSynthesis.getVoices().find((v) => v.lang === "en-GB") ?? null;
-  u.onend = u.onerror = () => { state.vhf = false; vhfUi(false); };
+  const voices = speechSynthesis.getVoices();
+  const voice = voices.find((v) => v.lang === "en-GB" && /natural|google|daniel|serena/i.test(v.name))
+    ?? voices.find((v) => v.lang === "en-GB") ?? voices.find((v) => v.lang.startsWith("en")) ?? null;
+  const spans = [...document.querySelectorAll(".mayday span")];
   state.vhf = true;
   vhfUi(true);
-  speechSynthesis.speak(u);
+  lines.forEach((text, i) => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-GB"; u.voice = voice;
+    u.rate = /position/i.test(text) ? 0.7 : 0.85; // koordinate polako
+    u.onstart = () => spans.forEach((s, k) => s.classList.toggle("now", k === i));
+    if (i === lines.length - 1) u.onend = () => { state.vhf = false; vhfUi(false); };
+    u.onerror = () => { state.vhf = false; vhfUi(false); };
+    speechSynthesis.speak(u);
+  });
 }
 function stopVhf() {
   if (state.vhf) { state.vhf = false; speechSynthesis.cancel(); }
@@ -495,6 +505,7 @@ function stopVhf() {
 }
 function vhfUi(on) {
   const s = document.getElementById("vhf-state"), b = document.getElementById("vhf");
+  if (!on) document.querySelectorAll(".mayday span.now").forEach((x) => x.classList.remove("now"));
   if (s) { s.className = on ? "tx" : ""; s.textContent = on ? "VHF kanal 16: EMITIRA (simulacija)…" : "VHF kanal 16: simulacija gotova - na pravom radiju sad slušaj odgovor"; }
   if (b) b.textContent = on ? "Zaustavi emitiranje" : "Ponovi emitiranje (simulacija)";
 }
