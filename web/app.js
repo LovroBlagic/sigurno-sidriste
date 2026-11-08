@@ -41,24 +41,40 @@ const body = document.getElementById("panel-body");
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* ---------------- karta ---------------- */
-const map = L.map("map", { zoomControl: false, minZoom: 6, maxBounds: [[41.5, 11.5], [46.6, 20.5]] })
-  .setView([43.6, 15.9], 8);
+// Samo hrvatski Jadran: od Savudrije do Prevlake, s otocima do Palagruže
+const ADRIATIC = L.latLngBounds([[42.2, 13.0], [45.9, 19.0]]);
+// Početni prikaz: more od Istre do Dubrovnika, slobodno od panela (lijevo na računalu).
+// Mobitel je preuzak za cijelu obalu, pa gleda Kvarner i sjevernu Dalmaciju iznad donjeg panela.
+const START = L.latLngBounds([[42.4, 13.2], [45.6, 17.6]]);
+const map = L.map("map", { zoomControl: false, minZoom: 7, maxBounds: ADRIATIC.pad(0.2), maxBoundsViscosity: 1 });
+if (innerWidth <= 720) {
+  map.setView([45.2, 14.5], 8);
+  map.panBy([0, innerHeight * 0.5 - (120 + innerHeight * 0.5) / 2], { animate: false });
+} else {
+  map.fitBounds(START, { paddingTopLeft: [400, 130], paddingBottomRight: [20, 20] });
+}
 L.control.zoom({ position: "topright", zoomInTitle: "Približi", zoomOutTitle: "Udalji" }).addTo(map);
 L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
+// Pregled: samo more, kopno jednobojno (bez cesta, granica i unutrašnjosti). Detaljna obala tek od zuma 11.
+// OSM je uvijek ispod: ako EMODnet ne odgovori, vidi se obična karta umjesto praznine.
+const DETAIL_ZOOM = 11;
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19, className: "chart-land", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 // Podloga kao pomorska karta: pojasevi dubine (0-2, 2-5, 5-10, 10-20, >20 m) i izobate iz EMODnet Bathymetry
-const DEPTH_BANDS = `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>emodnet:mean</Name><UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">`
+const depthBands = (land) => `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>emodnet:mean</Name><UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer><ColorMap type="intervals">`
   + `<ColorMapEntry color="#ffffff" quantity="-20"/><ColorMapEntry color="#c6e3f7" quantity="-10"/><ColorMapEntry color="#9fcff0" quantity="-5"/>`
-  + `<ColorMapEntry color="#74b7e8" quantity="-2"/><ColorMapEntry color="#4a9fe0" quantity="0.5"/><ColorMapEntry color="#000000" opacity="0" quantity="100000"/>`
+  + `<ColorMapEntry color="#74b7e8" quantity="-2"/><ColorMapEntry color="#4a9fe0" quantity="0.5"/>`
+  + (land ? `<ColorMapEntry color="${land}" quantity="100000"/>` : `<ColorMapEntry color="#000000" opacity="0" quantity="100000"/>`)
   + `</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
-L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
-  layers: "emodnet:mean", sld_body: DEPTH_BANDS, interpolations: "bicubic", format: "image/png", transparent: true,
-  attribution: "EMODnet Bathymetry",
+const bands = (land, zoom) => L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
+  layers: "emodnet:mean", sld_body: depthBands(land), interpolations: "bicubic", format: "image/png", transparent: true,
+  tileSize: 512, zoomOffset: -1, attribution: "EMODnet Bathymetry", ...zoom, // veće pločice = 4x manje upita prema EMODnetu
 }).addTo(map);
+bands("#f3df9e", { maxZoom: DETAIL_ZOOM - 1 });
+bands(null, { minZoom: DETAIL_ZOOM });
 L.tileLayer.wms("https://ows.emodnet-bathymetry.eu/wms", {
-  layers: "emodnet:contours", format: "image/png", transparent: true,
+  layers: "emodnet:contours", format: "image/png", transparent: true, tileSize: 512, zoomOffset: -1,
 }).addTo(map);
 state.layers.seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
   maxZoom: 18, zIndex: 3, attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
