@@ -1,0 +1,277 @@
+"""Satellite-derived bathymetry (SDB) prototype for Plavnik (Cres-Krk).
+
+Stumpf et al. (2003) log-ratio: ratio = ln(n*B02) / ln(n*B03), depth = m1*ratio - m0,
+calibrated only against EMODnet cells that come from a real echo-sounder survey.
+
+Usage (from the repo root):
+    python3 -m venv .venv-sdb && .venv-sdb/bin/pip install numpy rasterio matplotlib
+    .venv-sdb/bin/python research/sdb/sdb_plavnik.py [SCENE_ID ...]
+
+Downloads (cached in research/sdb/data/, not committed):
+  * Sentinel-2 L2A B02/B03/B08 window from the public Element84 Earth Search STAC
+    (AWS sentinel-cogs bucket, no login).
+  * EMODnet Bathymetry DTM 2024 depth grid (WCS) and the source of each 0-20 m cell (REST).
+Writes research/sdb/results.json and research/sdb/sdb_plavnik.png.
+"""
+import json
+import os
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
+os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
+
+import numpy as np
+import rasterio
+from rasterio.transform import rowcol, xy
+from rasterio.warp import transform, transform_bounds
+from rasterio.windows import from_bounds
+
+HERE = Path(__file__).resolve().parent
+DATA = HERE / "data"
+BBOX = (14.42, 44.91, 14.62, 45.03)  # lon/lat: Plavnik with the facing Cres and Krk coasts
+SCENES = ["S2B_33TVK_20260916_0_L2A", "S2A_33TVK_20250918_1_L2A"]  # lowest NIR glint of the clear scenes screened
+STAC = "https://earth-search.aws.element84.com/v1/collections/sentinel-2-l2a/items/"
+WCS = ("https://ows.emodnet-bathymetry.eu/wcs?service=WCS&version=2.0.1&request=GetCoverage"
+       "&coverageId=emodnet__mean&format=image/tiff"
+       f"&subset=Lat({BBOX[1]},{BBOX[3]})&subset=Long({BBOX[0]},{BBOX[2]})")
+# Only this source is an echo-sounder survey (Croatian Hydrographic Institute, multibeam +
+# singlebeam 1951-2017, 225 m DTM, LAT). 'croatia2003' is EOMAP's own Sentinel-2 SDB, so
+# calibrating on it would be circular; GEBCO2024 is a global interpolation.
+SURVEYED = {"Pula_Rijeka_Cres_Dubrovnik"}
+N = 1000.0          # Stumpf constant (keeps both logs positive for reflectance 0.001-0.1)
+NIR_LAND = 0.02     # B08 reflectance above this = land / emergent rock
+MIN_WATER_FRAC = 0.9  # an EMODnet cell is used only if >=90 % of its 10 m pixels are water
+DEPTH_MAX = 20.0
+
+
+def fetch(url, path):
+    if not path.exists():
+        DATA.mkdir(exist_ok=True)
+        urllib.request.urlretrieve(url, path)
+    return path
+
+
+def load_s2(scene):
+    out = DATA / f"{scene}.tif"
+    if not out.exists():
+        item = json.load(urllib.request.urlopen(STAC + scene))
+        # Earth Search sets earthsearch:boa_offset_applied=True: DN*1e-4 is already reflectance,
+        # the -0.1 'offset' in raster:bands must NOT be applied again (it gives negative water).
+        assert item["properties"].get("earthsearch:boa_offset_applied") is True
+        bands, prof = [], None
+        for key in ("blue", "green", "nir"):
+            with rasterio.open(item["assets"][key]["href"]) as ds:
+                win = from_bounds(*transform_bounds("EPSG:4326", ds.crs, *BBOX), ds.transform).round_offsets().round_lengths()
+                bands.append(ds.read(1, window=win))
+                if prof is None:
+                    prof = dict(driver="GTiff", dtype="uint16", count=3, crs=ds.crs,
+                                transform=ds.window_transform(win), height=bands[0].shape[0], width=bands[0].shape[1])
+        DATA.mkdir(exist_ok=True)
+        with rasterio.open(out, "w", **prof) as dst:
+            dst.write(np.stack(bands))
+    with rasterio.open(out) as ds:
+        b, g, n = (ds.read(i).astype("f4") * 1e-4 for i in (1, 2, 3))
+        return b, g, n, ds.transform, ds.crs
+
+
+def stumpf_ratio(b, g, nir):
+    water = (nir < NIR_LAND) & (b > 0) & (g > 0)
+    # drop the first water pixel next to land (mixed pixels, adjacency effect)
+    land = ~water
+    near = land.copy()
+    near[1:] |= land[:-1]; near[:-1] |= land[1:]; near[:, 1:] |= land[:, :-1]; near[:, :-1] |= land[:, 1:]
+    water &= ~near
+    with np.errstate(invalid="ignore", divide="ignore"):
+        r = np.log(N * b) / np.log(N * g)
+    r[~water] = np.nan
+    # 5x5 (50 m) median against sensor noise, striping and small waves; land stays NaN.
+    win = np.lib.stride_tricks.sliding_window_view(np.pad(r, 2, constant_values=np.nan), (5, 5))
+    with np.errstate(all="ignore"):
+        import warnings
+        warnings.simplefilter("ignore", RuntimeWarning)
+        r = np.where(water, np.nanmedian(win.reshape(*r.shape, 25), axis=-1), np.nan)
+    return r, water
+
+
+def rest_source(lon, lat):
+    """Source identifier of one EMODnet DTM cell, via the REST API (sequential, polite, retried)."""
+    url = f"https://rest.emodnet-bathymetry.eu/depth_sample?geom=POINT({lon:.6f}%20{lat:.6f})"
+    for attempt in range(6):
+        try:
+            r = json.load(urllib.request.urlopen(url, timeout=30))
+            return (r.get("reference") or {}).get("identifier") or ""
+        except Exception:
+            time.sleep(5 * (attempt + 1))
+    raise RuntimeError(url)
+
+
+def emodnet_reference():
+    """EMODnet DTM 2024 depth grid (WCS) plus the source of every 0-20 m cell (REST, cached).
+
+    The WFS source_references polygons overlap and disagreed with the REST answer in a
+    60-cell spot check, so the per-cell REST 'reference.identifier' is used instead.
+    """
+    tif = fetch(WCS, DATA / "emodnet_mean.tif")
+    with rasterio.open(tif) as ds:
+        elev, tr = ds.read(1), ds.transform
+    rows, cols = np.indices(elev.shape)
+    lon, lat = (np.asarray(v) for v in xy(tr, rows.ravel(), cols.ravel()))
+    depth = -elev.ravel()
+    cache_path = DATA / "emodnet_sources_rest.json"
+    cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+    src = np.full(depth.size, "", dtype=object)
+    todo = np.flatnonzero((depth > 0) & (depth <= DEPTH_MAX))
+    for k, i in enumerate(todo):
+        key = f"{lon[i]:.6f},{lat[i]:.6f}"
+        if key not in cache:
+            cache[key] = rest_source(lon[i], lat[i])
+            time.sleep(0.15)
+            if k % 200 == 0:
+                cache_path.write_text(json.dumps(cache))
+                print(f"EMODnet REST {k}/{todo.size}", file=sys.stderr, flush=True)
+        src[i] = cache[key]
+    cache_path.write_text(json.dumps(cache))
+    return dict(lon=lon, lat=lat, depth=depth, src=src, transform=tr, shape=elev.shape)
+
+
+def cell_ratios(ref, ratio, water, s2_tr, s2_crs):
+    """Median Stumpf ratio of the S2 pixels inside every EMODnet cell (cells are ~115 x 80 m)."""
+    rows, cols = np.indices(ratio.shape)
+    x, y = xy(s2_tr, rows.ravel(), cols.ravel())
+    lon, lat = transform(s2_crs, "EPSG:4326", x, y)
+    r, c = rowcol(ref["transform"], lon, lat)
+    cell = np.asarray(r) * ref["shape"][1] + np.asarray(c)
+    ok = (np.asarray(r) >= 0) & (np.asarray(r) < ref["shape"][0]) & (np.asarray(c) >= 0) & (np.asarray(c) < ref["shape"][1])
+    cell, wat, rat = cell[ok], water.ravel()[ok], ratio.ravel()[ok]
+    n_all = np.bincount(cell, minlength=ref["depth"].size)
+    n_wat = np.bincount(cell, weights=wat, minlength=ref["depth"].size)
+    med = np.full(ref["depth"].size, np.nan)
+    order = np.argsort(cell[wat]); cw, rw = cell[wat][order], rat[wat][order]
+    starts = np.r_[0, np.flatnonzero(np.diff(cw)) + 1]
+    for s, e in zip(starts, np.r_[starts[1:], len(cw)]):
+        med[cw[s]] = np.median(rw[s:e])
+    frac = np.divide(n_wat, n_all, out=np.zeros_like(n_wat), where=n_all > 0)
+    return med, frac
+
+
+def fit(r, d):
+    m1, m0 = np.polyfit(r, d, 1)
+    return m1, m0
+
+
+def stats(pred, obs):
+    e = pred - obs
+    return dict(n=int(e.size), rmse=float(np.sqrt(np.mean(e ** 2))), bias=float(np.mean(e)),
+                mae=float(np.mean(np.abs(e))), r2=float(1 - np.sum(e ** 2) / np.sum((obs - obs.mean()) ** 2)))
+
+
+def run(scene, ref):
+    b, g, nir, tr, crs = load_s2(scene)
+    ratio, water = stumpf_ratio(b, g, nir)
+    med, frac = cell_ratios(ref, ratio, water, tr, crs)
+    base = (frac >= MIN_WATER_FRAC) & np.isfinite(med) & (ref["depth"] > 0) & (ref["depth"] <= DEPTH_MAX)
+    sel = base & np.isin(ref["src"], list(SURVEYED))
+    idx = np.flatnonzero(sel)
+    res = dict(scene=scene, n_surveyed_0_20=int(idx.size),
+               n_by_source_0_20={s: int((base & (ref["src"] == s)).sum()) for s in set(ref["src"][base])})
+    if idx.size < 10:
+        res["verdict"] = "too few surveyed points to calibrate"
+        return res, ratio, water, tr, crs, None
+    d, r = ref["depth"][idx], med[idx]
+    # Hold-out 1: random 30 %. Hold-out 2: spatial, west vs east of the median longitude
+    # (neighbouring 115 m cells are correlated, so the random split is optimistic).
+    rng = np.random.default_rng(0)
+    test = np.zeros(idx.size, bool); test[rng.choice(idx.size, max(3, idx.size * 3 // 10), replace=False)] = True
+    m1, m0 = fit(r[~test], d[~test])
+    res["random_holdout"] = stats(m1 * r[test] + m0, d[test])
+    lon = ref["lon"][idx]; east = lon > np.median(lon)
+    sp = []
+    for tr_mask in (east, ~east):
+        a1, a0 = fit(r[~tr_mask], d[~tr_mask])
+        sp.append(stats(a1 * r[tr_mask] + a0, d[tr_mask]))
+    res["spatial_holdout_west_east"] = sp
+    m1, m0 = fit(r, d)
+    res["model_all"] = dict(m1=float(m1), m0=float(m0), r_pearson=float(np.corrcoef(r, d)[0, 1]),
+                            in_sample=stats(m1 * r + m0, d))
+    res["survey_depth_p0_p10_p50_p90_p100"] = np.percentile(d, [0, 10, 50, 90, 100]).round(1).tolist()
+    # Experiment B: calibrate on EOMAP's Sentinel-2 SDB ('croatia2003', NOT a survey) and test the
+    # result on the independent HHI survey cells. Shows whether the ratio has usable shape at all.
+    eo = np.flatnonzero(base & (ref["src"] == "croatia2003"))
+    b1, b0 = fit(med[eo], ref["depth"][eo])
+    res["eomap_calibrated"] = dict(m1=float(b1), m0=float(b0), n_calib=int(eo.size),
+                                   r_pearson_ratio_vs_eomap=float(np.corrcoef(med[eo], ref["depth"][eo])[0, 1]),
+                                   vs_hhi_survey=stats(b1 * r + b0, d))
+    # Optically deep limit: ratio of cells that are certainly deep (EMODnet > 50 m, any source).
+    # Pixels with a ratio at or above the 10th percentile of that are indistinguishable from deep water.
+    deep = (frac >= MIN_WATER_FRAC) & np.isfinite(med) & (ref["depth"] > 50)
+    r_deep = float(np.percentile(med[deep], 10))
+    res["deep_water_ratio_p10_p50"] = [r_deep, float(np.median(med[deep]))]
+    res["max_resolvable_depth_m"] = dict(eomap_model=float(b1 * r_deep + b0))
+    res["hhi_cells_beyond_optical_limit"] = int((r >= r_deep).sum())
+    res["calib_points"] = dict(lon=lon.tolist(), lat=ref["lat"][idx].tolist(), depth=d.tolist(), ratio=r.tolist(),
+                               test=test.tolist())
+    return res, ratio, water, tr, crs, dict(survey=(m1, m0), eomap=(b1, b0), r_deep=r_deep)
+
+
+def plot(res, ratio, water, tr, crs, models, out):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import ListedColormap
+
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(14, 6.6), gridspec_kw=dict(width_ratios=[1.6, 1]))
+    h, w = ratio.shape
+    ext = (tr.c, tr.c + tr.a * w, tr.f + tr.e * h, tr.f)
+    ax.set_facecolor("#e8eef2")
+    ax.imshow(np.where(water, np.nan, 1.0), extent=ext, cmap=ListedColormap(["#c9c2b0"]), interpolation="nearest")
+    # The survey-calibrated model has no skill (it is ~flat), so the map shows the EOMAP-calibrated
+    # one to give the *shape* of the shallow shelf. Both are labelled on the figure.
+    b1, b0 = models["eomap"]
+    depth = b1 * ratio + b0
+    depth[(depth < 0) | (depth > DEPTH_MAX) | (ratio >= models["r_deep"])] = np.nan
+    im = ax.imshow(depth, extent=ext, cmap="viridis_r", vmin=0, vmax=DEPTH_MAX, interpolation="nearest")
+    fig.colorbar(im, ax=ax, shrink=0.8, label="relative SDB depth [m]; blank = optically deep (can't tell)")
+    cp = res["calib_points"]
+    x, y = transform("EPSG:4326", crs, cp["lon"], cp["lat"])
+    ax.scatter(x, y, s=12, facecolors="none", edgecolors="red", lw=0.8, label="HHI survey cells 0-20 m (EMODnet)")
+    ax.legend(loc="lower left", fontsize=8)
+    (x0, x1), (y0, y1) = transform("EPSG:4326", crs, [14.465, 14.585], [44.935, 45.0])
+    ax.set(xlim=(x0, x1), ylim=(y0, y1), xticks=[], yticks=[])
+    ax.set_title(f"Plavnik, Sentinel-2 {res['scene'][10:18]}, Stumpf log-ratio calibrated on EOMAP SDB\n"
+                 "RESEARCH ONLY - NOT VALIDATED - NOT FOR NAVIGATION", fontsize=10)
+
+    d, r = np.array(cp["depth"]), np.array(cp["ratio"])
+    m1, m0 = models["survey"]
+    t = np.array(cp["test"])
+    ax2.scatter(d[~t], m1 * r[~t] + m0, s=14, c="k", alpha=0.6, label="calibrated on HHI survey (fit)")
+    ax2.scatter(d[t], m1 * r[t] + m0, s=22, marker="x", c="red", label="calibrated on HHI survey (held out)")
+    ax2.scatter(d, b1 * r + b0, s=16, marker="^", facecolors="none", edgecolors="tab:blue", label="calibrated on EOMAP SDB")
+    ax2.plot([0, DEPTH_MAX], [0, DEPTH_MAX], "k--", lw=0.8)
+    ax2.set(xlim=(0, DEPTH_MAX + 1), ylim=(-2, 30), xlabel="HHI survey depth (EMODnet cell) [m]", ylabel="SDB depth [m]")
+    s, e = res["random_holdout"], res["eomap_calibrated"]["vs_hhi_survey"]
+    ax2.set_title(f"vs survey: held-out RMSE {s['rmse']:.1f} m, R2 {s['r2']:.2f} (n={s['n']});\n"
+                  f"EOMAP-calibrated: RMSE {e['rmse']:.1f} m, bias {e['bias']:+.1f} m, R2 {e['r2']:.2f} (n={e['n']})",
+                  fontsize=9)
+    ax2.legend(fontsize=8, loc="upper left")
+    fig.tight_layout()
+    fig.savefig(out, dpi=120)
+
+
+def main(scenes):
+    ref = emodnet_reference()
+    allres = []
+    for i, scene in enumerate(scenes):
+        res, ratio, water, tr, crs, models = run(scene, ref)
+        if i == 0 and models:
+            plot(res, ratio, water, tr, crs, models, HERE / "sdb_plavnik.png")
+        res.pop("calib_points", None)
+        allres.append(res)
+        print(json.dumps(res, indent=1))
+    (HERE / "results.json").write_text(json.dumps(allres, indent=1) + "\n")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:] or SCENES)
