@@ -10,7 +10,7 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { WEB } from "./engine.js";
-import { handleApi, handleMcp, send } from "./handlers.js";
+import { handleApi, handleMcp, handleSos, send } from "./handlers.js";
 
 const PORT = +process.env.PORT || 5173;
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -34,6 +34,7 @@ http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   try {
     if (u.pathname === "/mcp" || u.pathname === "/api/mcp") return await handleMcp(req, res);
+    if (u.pathname === "/api/sos") return await handleSos(req, res);
     if (u.pathname.startsWith("/api/")) return await handleApi(u.pathname.slice(5), req, res);
     return await files(u, res);
   } catch (e) {

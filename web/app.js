@@ -397,6 +397,108 @@ async function share(s) {
   } catch { /* korisnik odustao */ }
 }
 
+/* ---------------- SOS: stvarne upute + DEMO slanje na server i simulirani VHF ---------------- */
+const NATURES = [["voda", "Prodor vode"], ["pozar", "Požar"], ["covjek", "Čovjek u moru"],
+  ["nasukavanje", "Nasukavanje"], ["kvar", "Kvar motora, brod pluta"], ["ostalo", "Drugo"]];
+
+function showSos() {
+  state.req++;
+  stopVhf();
+  const c = map.getCenter();
+  const w = state.me ? { ...state.me, from: "GPS tvog broda" } : { lat: c.lat, lon: c.lng, from: "sredina karte - za GPS pritisni gumb za lokaciju" };
+  pin(w.lat, w.lon, "bad");
+  body.innerHTML = `${back()}
+    <h2 class="sos-title">SOS - hitni slučaj na moru</h2>
+    <div class="sos-real" role="alert">
+      <b>Stvarna opasnost? Odmah:</b>
+      <ol>
+        <li><b>VHF kanal 16</b> - izgovori MAYDAY (postupak ispod)</li>
+        <li><b>DSC</b> - drži crveni gumb DISTRESS na radiju 5 s</li>
+        <li><a href="tel:195"><b>195</b></a> - traganje i spašavanje na moru (MRCC Rijeka)</li>
+        <li><a href="tel:112"><b>112</b></a> - jedinstveni broj za hitne slučajeve</li>
+      </ol>
+    </div>
+    <h3>MAYDAY na VHF 16 - opasnost za život ili brod</h3>
+    <ol class="sos-steps">
+      <li>„MAYDAY, MAYDAY, MAYDAY“</li>
+      <li>„Ovdje je …“ ime broda 3×, pozivni znak ili MMSI</li>
+      <li>„MAYDAY“ i ime broda još jednom</li>
+      <li>Položaj: stupnjevi i minute, ili udaljenost i smjer od poznate točke</li>
+      <li>Što se dogodilo i kakva pomoć treba</li>
+      <li>Broj osoba na brodu</li>
+      <li>„OVER“ - pa slušaj odgovor</li>
+    </ol>
+    <p class="tip">PAN-PAN ×3 umjesto MAYDAY kad je hitno, ali nema neposredne opasnosti za život (kvar, bolest).</p>
+    <p class="coords">Položaj: ${degMin(w.lat, 2, "N", "S")} ${degMin(w.lon, 3, "E", "W")} · ${esc(w.from)}</p>
+    <div class="sos-demo">
+      <div class="demo-tag">DEMO - ništa se ne šalje spasiocima ni na pravi radio</div>
+      <label>Što se dogodilo <select id="sos-nature">${NATURES.map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
+      <label>Osoba na brodu <input id="sos-people" type="number" min="1" max="99" value="2" inputmode="numeric"></label>
+      <button class="btn sos-hold" type="button" id="sos-send"><span class="fill"></span><span class="lbl">Drži 2 s za DEMO SOS</span></button>
+      <div id="sos-result" aria-live="polite"></div>
+    </div>`;
+  $("back").onclick = () => { stopVhf(); showHome(); };
+  holdToSend($("sos-send"), () => sendSos(w));
+}
+
+// Slanje tek nakon 2 s držanja, da se ne pošalje slučajnim dodirom
+function holdToSend(btn, done) {
+  let t = null;
+  const start = (e) => { if (btn.disabled || t || e.repeat) return; btn.classList.add("holding"); t = setTimeout(() => { t = null; btn.classList.remove("holding"); done(); }, 2000); };
+  const stop = () => { clearTimeout(t); t = null; btn.classList.remove("holding"); };
+  btn.addEventListener("pointerdown", start);
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(ev, stop);
+  btn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); start(e); } });
+  btn.addEventListener("keyup", stop);
+}
+
+async function sendSos(w) {
+  const btn = $("sos-send"), out = $("sos-result");
+  btn.disabled = true;
+  out.innerHTML = `<div class="loading"><div class="spinner"></div>Šaljem DEMO SOS na server…</div>`;
+  try {
+    const r = await fetch("api/sos", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: w.lat, lon: w.lon, nature: $("sos-nature").value, people: $("sos-people").value }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    out.innerHTML = `<ul class="sos-log">
+        <li class="ok">Server primio poruku · ${esc(j.id)} · ${new Date(j.receivedAt).toLocaleTimeString("hr-HR")}</li>
+        <li class="ok">Položaj ${esc(j.position)} · ${j.people} os.</li>
+        <li class="no">Proslijeđeno spasiocima: ne (demo)</li>
+        <li id="vhf-state">VHF kanal 16: spremno</li>
+      </ul>
+      <pre class="mayday">${j.mayday.map(esc).join("\n")}</pre>
+      <button class="btn primary" type="button" id="vhf">Emitiraj na VHF 16 (simulacija)</button>`;
+    $("vhf").onclick = () => (state.vhf ? stopVhf() : playVhf(j.spoken));
+    playVhf(j.spoken);
+  } catch (e) {
+    out.innerHTML = `<p class="tip">DEMO SOS nije poslan: ${esc(e.message)}</p>`;
+    btn.disabled = false;
+  }
+}
+
+// Simulirano VHF emitiranje: preglednik izgovori MAYDAY na engleskom (jezik pomorskog radija)
+function playVhf(lines) {
+  if (!("speechSynthesis" in window)) return toast("Preglednik ne podržava govor - poruka je ispisana iznad");
+  stopVhf();
+  const u = new SpeechSynthesisUtterance(lines.join(". "));
+  u.lang = "en-GB"; u.rate = 0.9;
+  u.voice = speechSynthesis.getVoices().find((v) => v.lang === "en-GB") ?? null;
+  u.onend = u.onerror = () => { state.vhf = false; vhfUi(false); };
+  state.vhf = true;
+  vhfUi(true);
+  speechSynthesis.speak(u);
+}
+function stopVhf() {
+  if (state.vhf) { state.vhf = false; speechSynthesis.cancel(); }
+  vhfUi(false);
+}
+function vhfUi(on) {
+  const s = document.getElementById("vhf-state"), b = document.getElementById("vhf");
+  if (s) { s.className = on ? "tx" : ""; s.textContent = on ? "VHF kanal 16: EMITIRA (simulacija)…" : "VHF kanal 16: simulacija gotova - na pravom radiju sad slušaj odgovor"; }
+  if (b) b.textContent = on ? "Zaustavi emitiranje" : "Ponovi emitiranje (simulacija)";
+}
+
 /* ---------------- pomagala ---------------- */
 const back = () => `<button class="back" type="button" id="back">← Početak</button>`;
 function wireBack() { const b = document.getElementById("back"); if (b) b.onclick = showHome; }
@@ -428,6 +530,7 @@ function setHash(h) { history.replaceState(null, "", `${location.pathname}${loca
 
 /* ---------------- događaji ---------------- */
 map.on("click", (e) => check(e.latlng.lat, e.latlng.lng));
+document.getElementById("sos").addEventListener("click", showSos);
 
 document.getElementById("search").addEventListener("submit", async (e) => {
   e.preventDefault();
