@@ -7,3 +7,4 @@ node_modules/
 # međukoraci videa
 video/build/
 .vercel
+__pycache__/
