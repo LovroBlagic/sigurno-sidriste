@@ -560,6 +560,14 @@
             ],
             "description": "Dubina, m"
           },
+          "depthSpan": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": { "type": "integer" },
+            "description": "Najplića i najdublja dubina u krugu od 150 m oko točke [min, max], m (EMODnet)"
+          },
           "seabed": {
             "type": [
               "string",

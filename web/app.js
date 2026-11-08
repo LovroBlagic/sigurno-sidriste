@@ -1,5 +1,5 @@
 /* Sigurno sidrište - web sučelje. Sva logika je u core.js (dijeli se s MCP serverom). */
-import { HOLD, windOf, normBoat } from "./core.js";
+import { HOLD, windOf, normBoat, depthLabel } from "./core.js";
 
 const GRASS = "#2a9d5c";
 
@@ -275,7 +275,7 @@ function renderFind(res, label) {
     ${res.spots.length ? `<ol class="spots">${res.spots.map((s, i) => `
       <li><button type="button" data-i="${i}">
         <span class="num ${s.lvl}">${i + 1}</span>
-        <span class="sp-main"><b>${s.title}</b><span>${[s.depth != null ? `${s.depth} m` : null, s.seabed?.toLowerCase(), s.shelter?.from.length ? `zaklon od: ${s.shelter.from.join(", ")}` : null].filter(Boolean).join(" · ")}</span></span>
+        <span class="sp-main"><b>${s.title}</b><span>${[depthLabel(s), s.seabed?.toLowerCase(), s.shelter?.from.length ? `zaklon od: ${s.shelter.from.join(", ")}` : null].filter(Boolean).join(" · ")}</span></span>
         <span class="sp-side"><b>${s.score}</b><small>${state.me ? esc(fromMe(s.lat, s.lon).text.replace(" od tebe", "")) : `${s.distanceKm} km`}</small></span>
       </button></li>`).join("")}</ol>`
       : res.alert ? `<p class="tip">U krugu od ${res.radiusKm} km nema mjesta zaklonjenog od ${res.alert.side}. Potraži luku ili marinu i stigni prije vjetra.</p>`
@@ -314,7 +314,7 @@ function showSpot(s, fromList) {
       <div class="title">${s.title}</div>
       <div class="sub">${esc(s.reason)}</div>
     </div>
-    ${s.chain ? `<p class="chain"><b>${s.chain} m</b> lanca${s.depth != null ? ` · ${s.depth} m dubine` : ""}</p>` : ""}
+    ${s.chain ? `<p class="chain"><b>${s.chain} m</b> lanca${s.depth != null ? ` · ${depthLabel(s)} dubine` : ""}</p>` : ""}
     ${alertBox(s.weather?.alert, false)}
     ${state.me ? `<p class="from-me">${BOAT_SVG}${esc(fromMe(s.lat, s.lon).text)}</p>` : ""}
     <ul class="facts">${s.facts.map((f) => `
@@ -337,7 +337,7 @@ function showSpot(s, fromList) {
 
 async function share(s) {
   const url = `${location.origin}${location.pathname}#p=${s.lat.toFixed(4)},${s.lon.toFixed(4)}`;
-  const text = `${s.title} (${s.score}/100)${s.depth != null ? `, ${s.depth} m` : ""}${s.seabed ? `, ${s.seabed.toLowerCase()}` : ""}`;
+  const text = `${s.title} (${s.score}/100)${s.depth != null ? `, ${depthLabel(s)}` : ""}${s.seabed ? `, ${s.seabed.toLowerCase()}` : ""}`;
   try {
     if (navigator.share) await navigator.share({ title: "Sigurno sidrište", text, url });
     else { await navigator.clipboard.writeText(`${text}\n${url}`); toast("Poveznica kopirana"); }

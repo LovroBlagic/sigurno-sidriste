@@ -9,6 +9,11 @@
  */
 import * as turf from "@turf/turf";
 
+// Dubina za prikaz: raspon u krugu oko točke ("9–12 m") ili jedan broj ako raspona nema
+export const depthLabel = (s) => (s.depthSpan
+  ? (s.depthSpan[0] === s.depthSpan[1] ? `${s.depthSpan[0]} m` : `${s.depthSpan[0]}–${s.depthSpan[1]} m`)
+  : s.depth != null ? `${s.depth} m` : null);
+
 export const LAYERS = ["substrate", "seagrass", "posidonia_grid", "biozones", "natura2000", "protected", "navmarks"];
 
 export const HOLD = {
@@ -239,6 +244,15 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     return v;
   }
 
+  // Najplića i najdublja dubina u krugu od 150 m (otprilike krug okretanja broda na sidru):
+  // dva profila kroz točku, sjever-jug i istok-zapad. Model ima mrežu ~115 m, pa jedan broj zavarava.
+  async function depthSpread(lon, lat) {
+    const [n, e, s, w] = [0, 90, 180, 270].map((deg) => turf.destination([lon, lat], 0.15, deg).geometry.coordinates);
+    const ps = await Promise.all([profile(...s, ...n), profile(...w, ...e)]);
+    const sea = ps.flat().filter((v) => v != null && v < 0).map((v) => -v);
+    return sea.length ? [Math.min(...sea), Math.max(...sea)] : null;
+  }
+
   // 8 zraka od 2 km: koliko je daleko kopno u svakom smjeru
   async function shelterRays(lon, lat) {
     const rays = await Promise.all(WINDS.map(async (w) => {
@@ -287,6 +301,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
 
     // Dubina
     let depth = ctx.depth?.depth ?? null;
+    let depthSpan = null;
     if (ctx.depthError) {
       facts.push({ id: "depth", k: "Dubina", v: "nedostupno", lvl: "na", d: "Servis za dubinu nije odgovorio. Koristi dubinomjer." });
       depth = null;
@@ -308,9 +323,12 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       else if (depth <= 25) { lvl = "ok"; d = "Duboko - trebat ćeš puno lanca."; score -= 22; }
       else if (depth <= 35) { lvl = "bad"; d = "Vrlo duboko. Većina jahti nema dovoljno lanca."; score -= 35; }
       else { lvl = "bad"; d = "Preduboko za sidrenje."; score -= 60; blocker = blocker || "Preduboko za sidrenje"; }
+      if (ctx.spread) depthSpan = [Math.floor(Math.min(depth, ctx.spread[0])), Math.ceil(Math.max(depth, ctx.spread[1]))];
       facts.push({
-        id: "depth", k: "Dubina", v: `${ctx.depth.estimated ? "≈" : ""}${depth.toFixed(1)} m`, lvl,
-        d: d + (ctx.depth.estimated ? " (Procjena - ovdje nema izmjere. Provjeri dubinomjerom.)" : " (Prosjek EMODnet mreže ~115 m - provjeri dubinomjerom.)"),
+        id: "depth", k: "Dubina", v: depthSpan ? depthLabel({ depthSpan }) : `${ctx.depth.estimated ? "≈" : ""}${depth.toFixed(1)} m`, lvl,
+        d: d + (depthSpan
+          ? ` (Raspon u krugu od 150 m prema EMODnetu${ctx.depth.estimated ? ", bez izmjere na ovom mjestu" : ""}. Provjeri dubinomjerom.)`
+          : ctx.depth.estimated ? " (Procjena - ovdje nema izmjere. Provjeri dubinomjerom.)" : " (Prosjek EMODnet mreže ~115 m - provjeri dubinomjerom.)"),
       });
     }
 
@@ -461,6 +479,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     return {
       score, lvl, title, reason, facts, tips, chain,
       depth: depth != null ? round(depth) : null,
+      depthSpan,
       seabed: ctx.seabed?.f.properties.label ?? null,
       shelter,
     };
@@ -483,12 +502,14 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     await ready;
     const ctx = local(lon, lat);
     ctx.boat = normBoat(boat);
-    const [depth, wx, rays] = await Promise.allSettled([
+    const [depth, wx, rays, spread] = await Promise.allSettled([
       depthAt(lon, lat),
       weather ? Promise.resolve(weather) : weatherAt(lon, lat),
       knownRays ? Promise.resolve(knownRays) : shelterRays(lon, lat),
+      depthSpread(lon, lat),
     ]);
     ctx.depth = depth.status === "fulfilled" ? depth.value : null;
+    ctx.spread = spread.status === "fulfilled" ? spread.value : null;
     ctx.depthError = depth.status === "rejected";
     ctx.weather = wx.status === "fulfilled" ? wx.value : null;
     ctx.weatherError = wx.status === "rejected";
@@ -614,7 +635,7 @@ export function spotText(s, { short = false } = {}) {
   const head = `${s.title} - ${s.score}/100 (${s.lat.toFixed(4)}° N, ${s.lon.toFixed(4)}° E)`;
   const link = `https://www.google.com/maps?q=${s.lat},${s.lon}`;
   if (short) {
-    const bits = [s.depth != null ? `${s.depth} m` : null, s.seabed?.toLowerCase(),
+    const bits = [depthLabel(s), s.seabed?.toLowerCase(),
       s.shelter?.from.length ? `zaklon od: ${list(s.shelter.from)}` : null].filter(Boolean);
     return `${head}\n   ${bits.join(" · ")}${s.chain ? ` · lanac ${s.chain} m` : ""}\n   ${link}`;
   }
