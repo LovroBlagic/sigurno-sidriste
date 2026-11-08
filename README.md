@@ -2,6 +2,8 @@
 
 Gdje sidriti na hrvatskom Jadranu. Upiši mjesto (npr. *Pakleni otoci*), pritisni **Pronađi sidrište u blizini** i dobiješ do 5 najboljih mjesta s dubinom, vrstom dna, zaklonom i duljinom lanca. Ili dodirni more na karti za provjeru jedne točke.
 
+**Moj brod:** upiši gaz, duljinu lanca i duljinu broda, pa aplikacija odbacuje preplitka i preduboka mjesta i provjerava krug okretanja. Gumb za lokaciju traži sidrišta oko tvog broda i za svako pokazuje udaljenost i smjer (km, NM).
+
 **Uživo za testiranje:** https://sigurno-sidriste.vercel.app · MCP: `https://sigurno-sidriste.vercel.app/mcp` · API: [`/openapi.json`](https://sigurno-sidriste.vercel.app/openapi.json)
 
 **Dokumentacija:** [tehnička arhitektura, izvori i licence, preduvjeti, integracija](docs/ARHITEKTURA.md) · [OpenAPI opis API-ja](web/openapi.json)
@@ -43,6 +45,7 @@ Ocjena je pravilo s bodovima, pa svaka presuda dolazi s objašnjenjem. Detalji p
 ```bash
 curl "https://sigurno-sidriste.vercel.app/api/find?q=Telašćica&r=3"     # do 5 sidrišta u blizini
 curl "https://sigurno-sidriste.vercel.app/api/check?lat=43.174&lon=16.3249"  # ocjena jedne točke
+curl "https://sigurno-sidriste.vercel.app/api/find?q=Hvar&gaz=1.8&lanac=50&duljina=12"  # po mjeri broda
 curl "https://sigurno-sidriste.vercel.app/api/geocode?q=Hvar"            # naziv → koordinate
 ```
 
@@ -58,7 +61,7 @@ npm start        # http://localhost:5173  ·  MCP: http://localhost:5173/mcp
 
 ## MCP
 
-Dva alata: `pronadi_sidriste` (mjesto ili lat/lon, polumjer) i `provjeri_tocku` (mjesto ili lat/lon).
+Dva alata: `pronadi_sidriste` (mjesto ili lat/lon, polumjer) i `provjeri_tocku` (mjesto ili lat/lon). Oba primaju i neobavezne `gaz_m`, `lanac_m` i `duljina_m`, pa asistent može odgovoriti po mjeri broda („imam 12 m jedrilicu s gazom 1,9 m“).
 
 **Claude Code** - već je podešeno u `.mcp.json`, samo otvori projekt.
 

@@ -52,6 +52,15 @@
               "maximum": 8,
               "default": 4
             }
+          },
+          {
+            "$ref": "#/components/parameters/gaz"
+          },
+          {
+            "$ref": "#/components/parameters/lanac"
+          },
+          {
+            "$ref": "#/components/parameters/duljina"
           }
         ],
         "responses": {
@@ -96,6 +105,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/gaz"
+          },
+          {
+            "$ref": "#/components/parameters/lanac"
+          },
+          {
+            "$ref": "#/components/parameters/duljina"
           }
         ],
         "responses": {
@@ -236,6 +254,39 @@
           "maximum": 20
         },
         "example": 16.3249
+      },
+      "gaz": {
+        "name": "gaz",
+        "in": "query",
+        "description": "Gaz broda u m. Mjesto pliće od gaz + 1 m dobiva „Ne sidri ovdje“; pretraga traži barem gaz + 1,5 m.",
+        "schema": {
+          "type": "number",
+          "minimum": 0.3,
+          "maximum": 6
+        },
+        "example": 1.8
+      },
+      "lanac": {
+        "name": "lanac",
+        "in": "query",
+        "description": "Koliko lanca brod ima, u m. Uspoređuje se s potrebnih 5:1 (7:1 kad puše); pretraga ne nudi mjesta dublja od lanac/4 − 1,5 m.",
+        "schema": {
+          "type": "number",
+          "minimum": 10,
+          "maximum": 300
+        },
+        "example": 50
+      },
+      "duljina": {
+        "name": "duljina",
+        "in": "query",
+        "description": "Duljina broda u m, za provjeru kruga okretanja prema kopnu.",
+        "schema": {
+          "type": "number",
+          "minimum": 3,
+          "maximum": 60
+        },
+        "example": 12
       }
     },
     "responses": {
@@ -356,7 +407,9 @@
               "shelter",
               "natura",
               "protected",
-              "hazard"
+              "hazard",
+              "chain",
+              "swing"
             ]
           },
           "k": {
@@ -489,6 +542,9 @@
           "distanceKm": {
             "type": "number",
             "description": "Samo u /api/find: udaljenost od središta pretrage"
+          },
+          "boat": {
+            "$ref": "#/components/schemas/Boat"
           }
         }
       },
@@ -541,6 +597,42 @@
             "items": {
               "$ref": "#/components/schemas/Spot"
             }
+          },
+          "boat": {
+            "$ref": "#/components/schemas/Boat"
+          },
+          "depthRange": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "Raspon dubina (m) u kojem su traženi kandidati, ovisno o gazu i lancu"
+          }
+        }
+      },
+      "Boat": {
+        "type": "object",
+        "description": "Podaci o brodu koje je server prihvatio",
+        "properties": {
+          "draft": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "chain": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "length": {
+            "type": [
+              "number",
+              "null"
+            ]
           }
         }
       }

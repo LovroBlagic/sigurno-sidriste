@@ -36,10 +36,11 @@ export async function handleApi(route, req, res) {
       where = g; name = g.name;
     }
     if (!where) return send(res, 400, { error: "Zadaj lat i lon (unutar hrvatskog Jadrana) ili q" });
-    if (route === "check") return send(res, 200, await engine.checkSpot(where.lat, where.lon));
+    const boat = { draft: u.searchParams.get("gaz"), chain: u.searchParams.get("lanac"), length: u.searchParams.get("duljina") };
+    if (route === "check") return send(res, 200, await engine.checkSpot(where.lat, where.lon, { boat }));
     if (route === "find") {
       const radiusKm = Math.min(8, Math.max(1, parseFloat(u.searchParams.get("r")) || 4));
-      return send(res, 200, { name, ...(await engine.findSpots(where.lat, where.lon, { radiusKm, max: 5 })) });
+      return send(res, 200, { name, ...(await engine.findSpots(where.lat, where.lon, { radiusKm, max: 5, boat })) });
     }
     send(res, 404, { error: "Nepoznata ruta" });
   } catch (e) {

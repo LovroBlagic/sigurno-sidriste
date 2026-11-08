@@ -1,5 +1,5 @@
 /* Sigurno sidrište - web sučelje. Sva logika je u core.js (dijeli se s MCP serverom). */
-import { HOLD } from "./core.js";
+import { HOLD, windOf, normBoat } from "./core.js";
 
 const GRASS = "#2a9d5c";
 
@@ -15,15 +15,26 @@ const layer = async (name) => {
   if (!r.ok) throw new Error(`${name}: ${r.status}`);
   return r.json();
 };
+/* ---------------- moj brod (sprema se samo u ovom pregledniku) ---------------- */
+const BOAT_KEY = "sidriste.boat";
+function loadBoat() { try { return normBoat(JSON.parse(localStorage.getItem(BOAT_KEY))); } catch { return null; } }
+function saveBoat(b) { try { b ? localStorage.setItem(BOAT_KEY, JSON.stringify(b)) : localStorage.removeItem(BOAT_KEY); } catch { /* privatni način */ } }
+const num1 = (x) => String(Math.round(x * 10) / 10).replace(".", ",");
+const boatParams = () => {
+  const b = state.boat;
+  return b ? Object.fromEntries([["gaz", b.draft], ["lanac", b.chain], ["duljina", b.length]].filter(([, v]) => v)) : {};
+};
+const boatLine = (b) => [b.draft && `gaz ${num1(b.draft)} m`, b.chain && `lanac ${b.chain} m`, b.length && `duljina ${num1(b.length)} m`].filter(Boolean).join(" · ");
+
 const engine = {
   ready: Promise.all(["substrate", "seagrass", "natura2000", "protected", "navmarks"].map(layer))
     .then(([substrate, seagrass, natura2000, protectedAreas, navmarks]) => ({ substrate, seagrass, natura2000, protectedAreas, navmarks })),
-  checkSpot: (lat, lon) => api("check", { lat, lon }),
-  findSpots: (lat, lon, { radiusKm }) => api("find", { lat, lon, r: radiusKm }),
+  checkSpot: (lat, lon) => api("check", { lat, lon, ...boatParams() }),
+  findSpots: (lat, lon, { radiusKm }) => api("find", { lat, lon, r: radiusKm, ...boatParams() }),
   geocode: (q) => api("geocode", { q }).catch((e) => (/pronaći/.test(e.message) ? null : Promise.reject(e))),
 };
 
-const state = { layers: {}, marker: null, results: L.layerGroup(), req: 0, lastFind: null };
+const state = { layers: {}, marker: null, results: L.layerGroup(), req: 0, lastFind: null, boat: loadBoat(), me: null, meMarker: null };
 const body = document.getElementById("panel-body");
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -93,9 +104,68 @@ function showHome() {
     });
   });
   body.querySelector("[data-action=find]").onclick = () => { const c = map.getCenter(); find(c.lat, c.lng); };
+  renderBoat(body.querySelector("#boat"), false);
   clearPin();
   state.results.clearLayers();
   setHash(null);
+}
+
+const BOAT_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M12 4l6 10h-6M12 6l-5 8h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 16h18l-2.5 4h-13z" fill="currentColor"/></svg>`;
+
+function renderBoat(el, editing) {
+  const b = state.boat;
+  if (!editing) {
+    el.innerHTML = `<button type="button" class="boat-sum">${BOAT_SVG}
+      <span><b>Moj brod</b><small>${b ? esc(boatLine(b)) : "Upiši gaz i lanac za ocjenu po mjeri tvog broda"}</small></span>
+      <u>${b ? "Uredi" : "Dodaj"}</u></button>`;
+    el.querySelector("button").onclick = () => renderBoat(el, true);
+    return;
+  }
+  const v = (x) => (x ? String(x) : "");
+  el.innerHTML = `<form class="boat-form">
+      <label>Gaz <span><input name="draft" type="number" inputmode="decimal" step="0.1" min="0.3" max="6" placeholder="1.8" value="${v(b?.draft)}"> m</span></label>
+      <label>Lanac <span><input name="chain" type="number" inputmode="numeric" step="5" min="10" max="300" placeholder="50" value="${v(b?.chain)}"> m</span></label>
+      <label>Duljina <span><input name="length" type="number" inputmode="decimal" step="0.5" min="3" max="60" placeholder="12" value="${v(b?.length)}"> m</span></label>
+      <div class="boat-actions"><button class="btn" type="submit">Spremi</button>
+        ${b ? `<button class="btn ghost" type="button" data-clear>Obriši</button>` : ""}</div>
+      <p class="hint">Gaz odbacuje preplitka mjesta, lanac preduboka, a duljina provjerava krug okretanja. Sprema se samo na ovom uređaju.</p>
+    </form>`;
+  const form = el.querySelector("form");
+  form.querySelector("input").focus();
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const raw = Object.fromEntries(new FormData(form));
+    const nb = normBoat(raw);
+    const bad = Object.entries(raw).filter(([k, x]) => x !== "" && !nb?.[k]).map(([k]) => ({ draft: "gaz", chain: "lanac", length: "duljina" }[k]));
+    if (bad.length) return toast(`Provjeri: ${bad.join(", ")}`);
+    state.boat = nb; saveBoat(nb);
+    toast(nb ? "Brod spremljen - ocjene su sada po mjeri tvog broda" : "Podaci o brodu obrisani");
+    renderBoat(el, false);
+  };
+  const clr = form.querySelector("[data-clear]");
+  if (clr) clr.onclick = () => { state.boat = null; saveBoat(null); renderBoat(el, false); };
+}
+
+// Udaljenost i smjer od mog broda (GPS) do točke
+function fromMe(lat, lon) {
+  if (!state.me) return null;
+  const R = 6371, toR = Math.PI / 180;
+  const dLat = (lat - state.me.lat) * toR, dLon = (lon - state.me.lon) * toR;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(state.me.lat * toR) * Math.cos(lat * toR) * Math.sin(dLon / 2) ** 2;
+  const km = 2 * R * Math.asin(Math.sqrt(a));
+  const y = Math.sin(dLon) * Math.cos(lat * toR);
+  const x = Math.cos(state.me.lat * toR) * Math.sin(lat * toR) - Math.sin(state.me.lat * toR) * Math.cos(lat * toR) * Math.cos(dLon);
+  const brg = (Math.atan2(y, x) / toR + 360) % 360;
+  const nm = km / 1.852;
+  return { km, text: `${km < 1 ? `${Math.round(km * 1000)} m` : `${num1(km)} km`} (${num1(nm)} NM) ${windOf(brg).side} od tebe` };
+}
+
+function setMe(lat, lon, acc) {
+  state.me = { lat, lon };
+  const icon = L.divIcon({ className: "", html: `<div class="me">${BOAT_SVG}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
+  if (state.meMarker) state.meMarker.setLatLng([lat, lon]);
+  else state.meMarker = L.marker([lat, lon], { icon, keyboard: false, zIndexOffset: 900, title: "Tvoj brod" }).addTo(map);
+  state.meMarker.bindTooltip(`Tvoj brod${acc ? ` (±${Math.round(acc)} m)` : ""}`);
 }
 
 /* ---------------- traženje sidrišta ---------------- */
@@ -135,13 +205,14 @@ function renderFind(res, label) {
   const windLine = w ? `Vjetar sada ${Math.round(w.speed)} čv, udari do ${Math.round(Math.max(w.gust, w.gustMax12 ?? 0))} čv${res.wind ? ` · najjače puše ${res.wind}` : ""}` : "";
   body.innerHTML = `${back()}<h2>${label ? esc(label) : "Sidrišta u blizini"}</h2>
     ${windLine ? `<p class="lead">${windLine}</p>` : ""}
+    ${res.boat ? `<p class="boat-tag">${BOAT_SVG}Za tvoj brod: ${esc(boatLine(res.boat))}</p>` : ""}
     ${res.spots.length ? `<ol class="spots">${res.spots.map((s, i) => `
       <li><button type="button" data-i="${i}">
         <span class="num ${s.lvl}">${i + 1}</span>
         <span class="sp-main"><b>${s.title}</b><span>${[s.depth != null ? `${s.depth} m` : null, s.seabed?.toLowerCase(), s.shelter?.from.length ? `zaklon od: ${s.shelter.from.join(", ")}` : null].filter(Boolean).join(" · ")}</span></span>
-        <span class="sp-side"><b>${s.score}</b><small>${s.distanceKm} km</small></span>
+        <span class="sp-side"><b>${s.score}</b><small>${state.me ? esc(fromMe(s.lat, s.lon).text.replace(" od tebe", "")) : `${s.distanceKm} km`}</small></span>
       </button></li>`).join("")}</ol>`
-      : `<p class="tip">U krugu od 4 km nisam našao dobro sidrište (dno, dubina 3–18 m, zaklon). Pomakni kartu bliže obali ili uvali i pokušaj opet.</p>`}
+      : `<p class="tip">U krugu od 4 km nisam našao dobro sidrište (dno, dubina ${(res.depthRange || [3, 18]).map(num1).join("–")} m, zaklon). Pomakni kartu bliže obali ili uvali i pokušaj opet.${res.boat?.chain && res.depthRange?.[1] < 10 ? ` S ${res.boat.chain} m lanca možeš sidriti najdublje oko ${num1(res.depthRange[1])} m.` : ""}</p>`}
     <p class="hint">Dodirni broj na karti ili u popisu za detalje.</p>`;
   wireBack();
   body.querySelectorAll("[data-i]").forEach((b) => b.onclick = () => showSpot(res.spots[+b.dataset.i], true));
@@ -176,6 +247,7 @@ function showSpot(s, fromList) {
       <div class="sub">${esc(s.reason)}</div>
     </div>
     ${s.chain ? `<p class="chain"><b>${s.chain} m</b> lanca${s.depth != null ? ` · ${s.depth} m dubine` : ""}</p>` : ""}
+    ${state.me ? `<p class="from-me">${BOAT_SVG}${esc(fromMe(s.lat, s.lon).text)}</p>` : ""}
     <ul class="facts">${s.facts.map((f) => `
       <li class="fact"><span class="dot ${f.lvl}"></span><span class="k">${f.k}</span>
         <span class="v">${f.arrow != null ? `<span class="wind-arrow" style="transform:rotate(${f.arrow + 180}deg)">↑</span> ` : ""}${esc(f.v)}</span>
@@ -251,7 +323,7 @@ document.getElementById("search").addEventListener("submit", async (e) => {
 document.getElementById("locate").addEventListener("click", () => {
   if (!navigator.geolocation) return toast("Preglednik ne podržava lokaciju");
   navigator.geolocation.getCurrentPosition(
-    (p) => find(p.coords.latitude, p.coords.longitude, "Oko tebe"),
+    (p) => { setMe(p.coords.latitude, p.coords.longitude, p.coords.accuracy); find(p.coords.latitude, p.coords.longitude, "Oko tebe"); },
     () => toast("Ne mogu dobiti tvoju lokaciju"),
     { enableHighAccuracy: true, timeout: 10000 },
   );
@@ -267,4 +339,4 @@ if (h) {
 }
 
 // Za demo snimke i otklanjanje grešaka
-window.__sidriste = { map, check, find };
+window.__sidriste = { map, check, find, setMe, state };

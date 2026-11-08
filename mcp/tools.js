@@ -10,6 +10,13 @@ const WHERE = {
   lon: z.number().min(12).max(20).optional().describe("Geografska dužina (WGS84)"),
 };
 
+const BOAT = {
+  gaz_m: z.number().min(0.3).max(6).optional().describe("Gaz broda u metrima (npr. 1.8). Odbacuje preplitka mjesta."),
+  lanac_m: z.number().min(10).max(300).optional().describe("Koliko lanca brod ima, u metrima. Odbacuje preduboka mjesta."),
+  duljina_m: z.number().min(3).max(60).optional().describe("Duljina broda u metrima, za krug okretanja."),
+};
+const boatOf = (a) => ({ draft: a.gaz_m, chain: a.lanac_m, length: a.duljina_m });
+
 async function resolve({ mjesto, lat, lon }) {
   if (lat != null && lon != null) return { lat, lon, name: null };
   if (!mjesto) throw new Error("Zadaj 'mjesto' ili 'lat' i 'lon'.");
@@ -25,7 +32,7 @@ export function createMcpServer() {
     instructions:
       "Alati za nautičare na hrvatskom Jadranu. Za pitanja tipa 'gdje mogu sidriti blizu X' koristi pronadi_sidriste; " +
       "za 'mogu li sidriti ovdje / na ovim koordinatama' koristi provjeri_tocku. Odgovaraj na jeziku korisnika, " +
-      "navedi dubinu, dno, zaklon od vjetra i duljinu lanca, i uvijek napomeni da nikad ne sidre na posidoniju " +
+      "navedi dubinu, dno, zaklon od vjetra i duljinu lanca. Ako korisnik spomene gaz, lanac ili duljinu broda, proslijedi ih (gaz_m, lanac_m, duljina_m). Uvijek napomeni da nikad ne sidre na posidoniju " +
       "te da je ovo pomoć pri planiranju, a ne navigacijska karta.",
   });
 
@@ -35,12 +42,12 @@ export function createMcpServer() {
       "Pronalazi do 5 najboljih mjesta za sidrenje u krugu oko mjesta ili koordinata na hrvatskom Jadranu. " +
       "Boduje dno (pijesak/mulj drži, stijene ne), izbjegava kartirane livade posidonije, traži dubinu 3-15 m " +
       "i zaklon od najjačeg vjetra prognoziranog za idućih 12 sati.",
-    inputSchema: { ...WHERE, radius_km: z.number().min(1).max(8).default(4).describe("Polumjer pretrage u km") },
+    inputSchema: { ...WHERE, ...BOAT, radius_km: z.number().min(1).max(8).default(4).describe("Polumjer pretrage u km") },
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async (args) => {
     try {
       const where = await resolve(args);
-      const r = await engine.findSpots(where.lat, where.lon, { radiusKm: args.radius_km ?? 4, max: 5 });
+      const r = await engine.findSpots(where.lat, where.lon, { radiusKm: args.radius_km ?? 4, max: 5, boat: boatOf(args) });
       const w = r.weather;
       const head = [
         `Sidrišta ${where.name ? `kod: ${where.name}` : `oko ${where.lat.toFixed(4)}, ${where.lon.toFixed(4)}`} (krug ${r.radiusKm} km)`,
@@ -48,7 +55,7 @@ export function createMcpServer() {
       ];
       const body = r.spots.length
         ? r.spots.map((s, i) => `${i + 1}. ${spotText(s, { short: true })}\n   udaljenost ${s.distanceKm} km`).join("\n")
-        : "Nisam našao dobro sidrište u ovom krugu (dno, dubina 3-18 m, zaklon). Probaj drugo mjesto ili veći polumjer.";
+        : `Nisam našao dobro sidrište u ovom krugu (dno, dubina ${r.depthRange.join("-")} m, zaklon). Probaj drugo mjesto ili veći polumjer.`;
       return {
         content: [{ type: "text", text: `${head.join("\n")}\n\n${body}\n\nPomoć pri planiranju, ne navigacijska karta. Nikad ne sidri na posidoniju.` }],
         structuredContent: {
@@ -64,12 +71,12 @@ export function createMcpServer() {
     description:
       "Detaljna procjena jedne točke: vrsta dna i koliko drži, posidonija, dubina, zaklon u 8 smjerova, " +
       "vjetar i valovi sada i idućih 12 h, Natura 2000, preporučena duljina lanca. Vraća ocjenu 0-100.",
-    inputSchema: WHERE,
+    inputSchema: { ...WHERE, ...BOAT },
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async (args) => {
     try {
       const where = await resolve(args);
-      const s = await engine.checkSpot(where.lat, where.lon);
+      const s = await engine.checkSpot(where.lat, where.lon, { boat: boatOf(args) });
       return {
         content: [{ type: "text", text: (where.name ? `${where.name}\n` : "") + spotText(s) }],
         structuredContent: { mjesto: where.name, ...s },

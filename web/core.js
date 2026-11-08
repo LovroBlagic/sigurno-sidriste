@@ -29,6 +29,14 @@ export const WINDS = [
   { deg: 270, name: "pulenat", side: "Z" },
   { deg: 315, name: "maestral", side: "SZ" },
 ];
+// Podaci o brodu: gaz (m), lanac (m), duljina (m). Svako polje je neobavezno.
+export function normBoat(b) {
+  if (!b) return null;
+  const num = (v, lo, hi) => { const x = parseFloat(v); return Number.isFinite(x) && x >= lo && x <= hi ? x : null; };
+  const boat = { draft: num(b.draft, 0.3, 6), chain: num(b.chain, 10, 300), length: num(b.length, 3, 60) };
+  return boat.draft || boat.chain || boat.length ? boat : null;
+}
+
 export const windOf = (deg) => WINDS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 
 const UA = "safe-anchor-hackathon/1.0";
@@ -47,6 +55,7 @@ const PROTECTED = {
 };
 
 /* ---------- mala pomagala ---------- */
+const fmt = (x) => String(Math.round(x * 10) / 10).replace(".", ",");
 function indexed(fc) {
   for (const f of fc.features) f.bbox = turf.bbox(f);
   return fc;
@@ -248,8 +257,11 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       depth = null;
     } else {
       let lvl = "good", d = "Ugodna dubina za sidrenje.";
-      if (depth < 2) { lvl = "bad"; d = "Preplitko za većinu kobilica."; score -= 45; blocker = blocker || "Preplitko"; }
-      else if (depth < 3) { lvl = "ok"; d = "Plitko - provjeri gaz broda."; score -= 12; }
+      const draft = ctx.boat?.draft;
+      if (draft && depth < draft + 1) { lvl = "bad"; d = `Preplitko za tvoj brod (gaz ${fmt(draft)} m) - treba barem ${fmt(draft + 1)} m.`; score -= 45; blocker = blocker || `Preplitko za tvoj brod (gaz ${fmt(draft)} m)`; }
+      else if (draft && depth < draft + 2) { lvl = "ok"; d = `Malo vode ispod kobilice (gaz ${fmt(draft)} m).`; score -= 12; }
+      else if (!draft && depth < 2) { lvl = "bad"; d = "Preplitko za većinu kobilica."; score -= 45; blocker = blocker || "Preplitko"; }
+      else if (!draft && depth < 3) { lvl = "ok"; d = "Plitko - provjeri gaz broda."; score -= 12; }
       else if (depth <= 15) { lvl = "good"; }
       else if (depth <= 25) { lvl = "ok"; d = "Duboko - trebat ćeš puno lanca."; score -= 22; }
       else if (depth <= 35) { lvl = "bad"; d = "Vrlo duboko. Većina jahti nema dovoljno lanca."; score -= 35; }
@@ -342,7 +354,39 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     if (depth && !blocker) {
       const ratio = windy ? 7 : 5;
       chain = Math.ceil((depth + 1.5) * ratio);
+      const boat = ctx.boat;
+      const after = Math.max(0, facts.findIndex((f) => f.id === "depth")) + 1;
+      if (boat?.chain && boat.chain < chain) {
+        const calm = Math.ceil((depth + 1.5) * 4);
+        const maxDepth = Math.floor(boat.chain / ratio - 1.5);
+        if (boat.chain >= calm) {
+          score -= 10;
+          facts.splice(after, 0, { id: "chain", k: "Tvoj lanac", v: `imaš ${boat.chain} m, treba ${chain} m`, lvl: "ok",
+            d: `Dovoljno samo za mirno vrijeme (4:1). Ako zapuše, premjesti se na mjesto pliće od ${maxDepth} m.` });
+        } else {
+          score -= 30;
+          facts.splice(after, 0, { id: "chain", k: "Tvoj lanac", v: `imaš ${boat.chain} m, treba ${chain} m`, lvl: "bad",
+            d: `Lanac je prekratak za ovu dubinu - sidro neće dobro držati. Potraži mjesto pliće od ${Math.max(2, maxDepth)} m.` });
+        }
+      } else if (boat?.chain) {
+        facts.splice(after, 0, { id: "chain", k: "Tvoj lanac", v: `imaš ${boat.chain} m, treba ${chain} m`, lvl: "good", d: "Lanca imaš dovoljno." });
+      }
       tips.unshift(`Pusti barem ${chain} m lanca (${ratio}:1 za ${windy ? "vjetrovitu noć" : "mirno vrijeme"}, mjereno od pramca).`);
+
+      // Krug okretanja: vodoravni dio lanca + duljina broda, usporedi s udaljenošću do kopna
+      if (boat?.length && ctx.rays) {
+        const use = Math.min(boat.chain ?? chain, chain);
+        const swing = Math.round(Math.sqrt(Math.max(0, use ** 2 - (depth + 1.5) ** 2)) + boat.length);
+        const near = ctx.rays.filter((r) => r != null).map((r) => r * 1000);
+        const minLand = near.length ? Math.round(Math.min(...near)) : null;
+        if (minLand != null && minLand < swing) {
+          score -= 10;
+          facts.splice(after + 1, 0, { id: "swing", k: "Krug okretanja", v: `~${swing} m, kopno ${minLand} m`, lvl: "ok",
+            d: `Na ${use} m lanca brod od ${fmt(boat.length)} m okreće se u krugu od oko ${swing} m, a kopno je bliže. Pomakni se dalje od obale ili veži krmu za kopno.` });
+        } else if (minLand != null) {
+          facts.splice(after + 1, 0, { id: "swing", k: "Krug okretanja", v: `~${swing} m`, lvl: "good", d: `Kopno je ${minLand} m daleko - dovoljno mjesta za okretanje.` });
+        }
+      }
     }
 
     score = Math.max(0, Math.min(100, Math.round(score)));
@@ -376,9 +420,10 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     };
   }
 
-  async function checkSpot(lat, lon, { weather, rays: knownRays } = {}) {
+  async function checkSpot(lat, lon, { weather, rays: knownRays, boat } = {}) {
     await ready;
     const ctx = local(lon, lat);
+    ctx.boat = normBoat(boat);
     const [depth, wx, rays] = await Promise.allSettled([
       depthAt(lon, lat),
       weather ? Promise.resolve(weather) : weatherAt(lon, lat),
@@ -389,15 +434,19 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     ctx.weather = wx.status === "fulfilled" ? wx.value : null;
     ctx.weatherError = wx.status === "rejected";
     ctx.rays = rays.status === "fulfilled" ? rays.value : null;
-    return { lat: round(lat, 5), lon: round(lon, 5), ...assess(ctx), weather: ctx.weather };
+    return { lat: round(lat, 5), lon: round(lon, 5), ...assess(ctx), weather: ctx.weather, ...(ctx.boat ? { boat: ctx.boat } : {}) };
   }
 
   /**
    * Pretraži krug oko točke: mreža dubina (~250 m), odbaci posidoniju, stijene i preduboko,
    * boduj dno + dubinu + zaklon od prognoziranog vjetra, pa detaljno provjeri najbolje.
    */
-  async function findSpots(lat, lon, { radiusKm = 4, max = 5, onProgress } = {}) {
+  async function findSpots(lat, lon, { radiusKm = 4, max = 5, onProgress, boat } = {}) {
     await ready;
+    boat = normBoat(boat);
+    // raspon dubina za kandidate: gaz + 1,5 m do dubine za koju lanac doseže barem 4:1 (najviše 18 m)
+    const minD = Math.max(3, boat?.draft ? boat.draft + 1.5 : 3);
+    const maxD = Math.max(minD, Math.min(18, boat?.chain ? boat.chain / 4 - 1.5 : 18));
     radiusKm = Math.max(1, Math.min(8, radiusKm));
     const step = radiusKm <= 3 ? 0.2 : 0.25;
     const n = Math.round((2 * radiusKm) / step) + 1;
@@ -428,7 +477,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
     const cands = [];
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
       const d = grid[r][c];
-      if (d === undefined || d < 3 || d > 18) continue;
+      if (d === undefined || d < minD || d > maxD) continue;
       const [x, y] = coord(r, c);
       const distKm = turf.distance([lon, lat], [x, y]);
       if (distKm > radiusKm) continue;
@@ -470,13 +519,13 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
       if (picked.every((p) => turf.distance([p.x, p.y], [cd.x, cd.y]) > 0.6)) picked.push(cd);
       if (picked.length >= max + 3) break;
     }
-    const checked = await Promise.all(picked.map((p) => checkSpot(p.y, p.x, { weather, rays: p.rays })));
+    const checked = await Promise.all(picked.map((p) => checkSpot(p.y, p.x, { weather, rays: p.rays, boat })));
     const spots = checked
       .map((s) => ({ ...s, distanceKm: round(turf.distance([lon, lat], [s.lon, s.lat]), 1) }))
       .filter((s) => s.lvl !== "bad")
       .sort((a, b) => b.score - a.score || a.distanceKm - b.distanceKm)
       .slice(0, max);
-    return { center: { lat, lon }, radiusKm, weather, wind: ref?.name ?? null, scanned: cands.length, spots };
+    return { center: { lat, lon }, radiusKm, weather, wind: ref?.name ?? null, scanned: cands.length, depthRange: [round(minD, 1), round(maxD, 1)], ...(boat ? { boat } : {}), spots };
   }
 
   async function geocode(query) {

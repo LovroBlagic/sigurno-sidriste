@@ -109,6 +109,11 @@ Ocjena je pravilo s bodovima (0–100). Nije strojno učenje, pa je svaki rezult
 | Oznaka opasnosti | Plovput (data.gov.hr) | Oznaka podvodne opasnosti unutar 400 m → −8 i upozorenje s udaljenošću i smjerom |
 | Natura 2000 | Natura 2000 (data.gov.hr) | Samo informacija, bez bodova |
 | Lanac | izračun | (dubina + 1,5 m) × 5, ili × 7 kad puše |
+| Gaz broda (neobavezno) | korisnik | Dubina < gaz + 1 m blokira („Preplitko za tvoj brod“); < gaz + 2 m → −12 |
+| Lanac broda (neobavezno) | korisnik | Manje od potrebnog, ali barem 4:1 → −10 („samo za mirno vrijeme“); manje od 4:1 → −30 |
+| Krug okretanja (neobavezno) | duljina broda + zrake zaklona | Vodoravni dio lanca + duljina broda veći od udaljenosti do kopna → −10 |
+
+Ako korisnik upiše brod, pretraga traži dubine od gaz + 1,5 m do lanac / 4 − 1,5 m (najviše 18 m). Podaci o brodu spremaju se samo u pregledniku korisnika (`localStorage`). GPS položaj koristi se samo za središte pretrage te za udaljenost i smjer do sidrišta, a server ga ne sprema.
 
 Presuda: ≥70 „Dobro mjesto“, 45–69 „Sidri uz oprez“, <45 „Loše mjesto“, a blokada daje „Ne sidri ovdje“.
 

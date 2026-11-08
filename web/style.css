@@ -240,3 +240,25 @@ details.more .legend { margin-top: 12px; }
 .pin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .pin.good { background: #2f7d5b; } .pin.ok { background: #d29a2a; } .pin.bad { background: #b23a2e; } .pin.wait { background: #1d4e6e; }
 .leaflet-tooltip.sa-tip { font: 500 12px var(--font-body); }
+
+/* ---------- moj brod ---------- */
+.boat { margin: 14px 0 4px; }
+.boat-sum {
+  width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer;
+  background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; color: var(--ink); font: inherit;
+}
+.boat-sum svg { width: 26px; height: 26px; color: var(--sea); flex: none; }
+.boat-sum span { flex: 1; min-width: 0; display: grid; }
+.boat-sum small { color: var(--ink-soft); font-size: 13px; }
+.boat-sum u { color: var(--sea); font-weight: 600; font-size: 14px; text-underline-offset: 3px; }
+.boat-form { background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.boat-form label { display: grid; gap: 4px; font: 600 13px var(--font-body); color: var(--ink-soft); }
+.boat-form label span { display: flex; align-items: center; gap: 6px; color: var(--ink-soft); font-weight: 500; }
+.boat-form input { width: 100%; min-width: 0; font: 500 16px var(--font-mono); color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px; }
+.boat-form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.boat-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+.boat-form .hint { grid-column: 1 / -1; margin: 0; }
+.boat-tag, .from-me { display: flex; align-items: center; gap: 8px; color: var(--sea); font: 500 14px var(--font-body); margin: 4px 0 10px; }
+.boat-tag svg, .from-me svg { width: 18px; height: 18px; flex: none; }
+.me { width: 30px; height: 30px; border-radius: 50%; background: var(--sea); color: #fff; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 0 0 6px rgba(29, 78, 110, .25), var(--shadow); }
+.me svg { width: 18px; height: 18px; }
