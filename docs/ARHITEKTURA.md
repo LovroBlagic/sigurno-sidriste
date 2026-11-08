@@ -161,7 +161,7 @@ Zahvaljujući REST API-ju i OpenAPI opisu, rješenje se bez promjena može ugrad
 - Komercijalna uporaba zahtijeva plaćeni Open-Meteo plan i drugi geokoder.
 - Izjava o odricanju odgovornosti: aplikacija je pomoć pri planiranju, ne zamjenjuje službene pomorske karte, dubinomjer ni lokalna pravila.
 - Privatnost: aplikacija ne traži prijavu, ne sprema osobne podatke ni lokacije korisnika i ne koristi kolačiće za praćenje.
-- Licenca samog projekta još nije odabrana.
+- Kod projekta je pod licencom MIT ([LICENSE](../LICENSE)); licence izvora podataka vrijede neovisno o njoj.
 
 ## 8. Ograničenja
 
