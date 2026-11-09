@@ -225,10 +225,13 @@ const AisLayer = L.LayerGroup.extend({
       return;
     }
     const b = m.getBounds();
-    const r = await fetch(`api/vessels?bbox=${[b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map((x) => x.toFixed(3))}`);
+    const r = await fetch(`api/vessels?bbox=${[b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map((x) => x.toFixed(3))}`).catch(() => null);
+    // sloj je u međuvremenu isključen ili je prozor već otvoren: ništa ne dodavati
+    if (!r || this._map !== m || this._fallback) return;
     if (r.status === 503) { this._fallback = new Vessels().addTo(m); return; }
-    if (!r.ok || this._map !== m) return;
+    if (!r.ok) return;
     const { vessels } = await r.json();
+    if (this._map !== m || this._fallback) return;
     if (!vessels.length) {
       this.clearLayers();
       this._fallback = new Vessels().addTo(m);

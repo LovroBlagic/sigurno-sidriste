@@ -404,13 +404,18 @@ details.more .legend { margin-top: 12px; }
 
 /* ---------- brodovi uživo (VesselFinder prozor) ---------- */
 .vessels-box {
-  position: absolute; z-index: 800; right: 12px; bottom: 120px; width: min(420px, calc(100% - 24px)); height: min(340px, 45vh);
+  position: absolute; z-index: 1001; right: 12px; bottom: 120px; width: min(420px, calc(100% - 24px)); height: min(340px, 45vh);
   display: flex; flex-direction: column; background: var(--paper); color: var(--ink);
   border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); overflow: hidden;
 }
 .vessels-head { display: flex; align-items: baseline; gap: 8px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--line); }
 .vessels-head small { color: var(--ink-soft); flex: 1; }
-.vessels-head button { border: 0; background: none; color: var(--ink); font-size: 20px; line-height: 1; padding: 2px 8px; cursor: pointer; }
+.vessels-head button { border: 0; background: none; color: var(--ink); font-size: 24px; line-height: 1; min-width: 40px; min-height: 36px; padding: 2px 8px; cursor: pointer; }
+@media (max-width: 720px) {
+  /* na mobitelu iznad panela, ispod gornje trake */
+  .vessels-box { left: 8px; right: 8px; width: auto; top: calc(var(--bar-top) + 64px); bottom: calc(var(--sheet-now, 50vh) + 8px); height: auto; min-height: 150px; }
+  .vessels-head { align-items: center; }
+}
 .vessels-box iframe { flex: 1; width: 100%; border: 0; }
 
 /* brodovi uživo (AIS) na našoj karti */
