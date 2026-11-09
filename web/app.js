@@ -36,7 +36,7 @@ const engine = {
   geocode: (q) => api("geocode", { q }).catch((e) => (/pronaći/.test(e.message) ? null : Promise.reject(e))),
 };
 
-const state = { layers: {}, marker: null, results: L.layerGroup(), req: 0, lastFind: null, boat: loadBoat(), me: null, meMarker: null };
+const state = { quietLayers: true, layers: {}, marker: null, results: L.layerGroup(), req: 0, lastFind: null, boat: loadBoat(), me: null, meMarker: null };
 const body = document.getElementById("panel-body");
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -161,7 +161,7 @@ fetch("tiles/sdb/index.json", { cache: "no-cache" }).then((r) => r.json()).then(
   state.layers.sdb = new DepthTiles("tiles/sdb/{z}/{x}/{y}.png?v={v}", {
     index: zooms, v, minZoom: 8, maxNativeZoom: 13, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 2, className: "sdb-layer",
     attribution: "Plićaci: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
-  }).on("add", () => toast(`Narančasto: vjerojatno pliće od ${meta.shallow_below_m} m (satelit; u provjerenim područjima uhvati ≥${Math.round(meta.catch_min * 100)} % takvih mjesta). Nije za navigaciju.`));
+  }).on("add", () => state.quietLayers || toast(`Narančasto: vjerojatno pliće od ${meta.shallow_below_m} m (satelit; u provjerenim područjima uhvati ≥${Math.round(meta.catch_min * 100)} % takvih mjesta). Nije za navigaciju.`));
   syncLayers();
 }).catch(() => {});
 
@@ -172,7 +172,7 @@ fetch("tiles/sdbd/index.json", { cache: "no-cache" }).then((r) => r.json()).then
   state.layers.sdbd = new DepthTiles("tiles/sdbd/{z}/{x}/{y}.png?v={v}", {
     index: zooms, v, minZoom: 9, maxNativeZoom: 14, maxZoom: 19, bounds: TILE_BOUNDS, zIndex: 3, className: "sdbd-layer",
     attribution: "Dubina sa satelita: Copernicus Sentinel-2, NASA ICESat-2 (eksperimentalno)",
-  }).on("add", () => toast(`Dubina sa satelita 0-${meta.max_depth_m} m (${meta.area}): procjena, tipična pogreška ~${meta.rmse_median} m, uz tamno dno zna pokazati dublje. Nije za navigaciju.`));
+  }).on("add", () => state.quietLayers || toast(`Dubina sa satelita 0-${meta.max_depth_m} m (${meta.area}): procjena, tipična pogreška ~${meta.rmse_median} m, uz tamno dno zna pokazati dublje. Nije za navigaciju.`));
   syncLayers();
 }).catch(() => {});
 
@@ -271,6 +271,7 @@ function showHome() {
   body.querySelectorAll("[data-layer]").forEach((cb) => {
     cb.checked = !!prefs[cb.dataset.layer];
     cb.addEventListener("change", () => {
+      state.quietLayers = false;
       state.layerPrefs = { ...prefs, ...Object.fromEntries([...body.querySelectorAll("[data-layer]")].map((c) => [c.dataset.layer, c.checked])) };
       syncLayers();
     });
@@ -453,6 +454,7 @@ function setMe(lat, lon, acc) {
   if (state.meMarker) state.meMarker.setLatLng([lat, lon]);
   else state.meMarker = L.marker([lat, lon], { icon, keyboard: false, zIndexOffset: 900, title: "Tvoj brod" }).addTo(map);
   state.meMarker.bindTooltip(`Tvoj brod${acc ? ` (±${Math.round(acc)} m)` : ""}`);
+  document.body.classList.add("has-me");
   updateBar(map.getCenter(), false);
 }
 
@@ -511,7 +513,8 @@ async function find(lat, lng, label) {
   state.results.clearLayers();
   const circle = L.circle([lat, lng], { radius: 4000, color: "#1d4e6e", weight: 1.5, dashArray: "6 6", fillOpacity: 0.04, interactive: false });
   state.results.addLayer(circle);
-  map.fitBounds(circle.getBounds(), { paddingTopLeft: padTL(), paddingBottomRight: [20, 20] });
+  setSheet("half");
+  map.fitBounds(circle.getBounds(), { paddingTopLeft: padTL(), paddingBottomRight: padBR() });
   body.innerHTML = `${back()}<h2>${label ? esc(label) : "Tražim sidrišta"}</h2>
     <div class="loading"><div class="spinner"></div><span id="prog">Mjerim dubine i tražim zaklon u krugu od 4 km…</span></div>
     <div class="bar indet"><div></div></div>`;
@@ -589,6 +592,7 @@ async function osmWater(lat, lng) {
 
 async function check(lat, lng) {
   const req = ++state.req;
+  setSheet("half");
   state.results.clearLayers();
   state.lastFind = null;
   pin(lat, lng, "wait");
@@ -606,7 +610,8 @@ async function check(lat, lng) {
 }
 
 function showSpot(s, fromList) {
-  if (fromList) { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14)); keepVisible(s.lat, s.lon); }
+  setSheet("half");
+  if (fromList) { map.setView([s.lat, s.lon], Math.max(map.getZoom(), 14), { animate: !isPhone() }); keepVisible(s.lat, s.lon); }
   pin(s.lat, s.lon, s.lvl);
   barWind(s.weather);
   body.innerHTML = `${fromList ? `<button class="back" type="button" id="tolist">← Natrag na popis</button>` : back()}
@@ -771,12 +776,62 @@ function clearPin() { if (state.marker) { map.removeLayer(state.marker); state.m
 
 const isPhone = () => window.innerWidth <= 720;
 const barH = () => $("databar").offsetHeight;
-const padTL = () => (isPhone() ? [20, 80 + barH()] : [410, 80 + barH()]);
+const sheetH = () => (isPhone() ? $("panel").offsetHeight : 0);
+const padTL = () => (isPhone() ? [20, 70 + barH()] : [410, 80 + barH()]);
+const padBR = () => (isPhone() ? [20, sheetH() + 16] : [20, 20]);
+// Na mobitelu: točka mora biti u vidljivom dijelu karte, između gornje trake i panela
 function keepVisible(lat, lng) {
   if (!isPhone()) return;
-  const size = map.getSize();
+  const size = map.getSize(), top = 64 + barH(), bottom = size.y - sheetH();
   const p = map.latLngToContainerPoint([lat, lng]);
-  if (p.y > size.y * 0.42 || p.y < 70 + barH()) map.panBy([p.x - size.x / 2, p.y - size.y * 0.24], { animate: true });
+  if (p.y > bottom - 30 || p.y < top + 10 || p.x < 20 || p.x > size.x - 20) map.panBy([p.x - size.x / 2, p.y - (top + bottom) / 2], { animate: true });
+}
+
+/* ---------------- panel na mobitelu: tri visine (kratko, pola, cijeli ekran) ---------------- */
+const SHEET = ["peek", "half", "full"];
+function setSheet(s) {
+  if (!isPhone()) return;
+  const p = $("panel");
+  SHEET.forEach((x) => p.classList.toggle(`sheet-${x}`, x === s));
+  p.dataset.sheet = s;
+  document.body.dataset.sheet = s;
+  if (s !== "full") p.scrollTop = 0;
+}
+{
+  const p = $("panel"), g = p.querySelector(".grip");
+  const sync = () => {
+    document.documentElement.style.setProperty("--sheet-now", `${isPhone() ? p.offsetHeight : 0}px`);
+  };
+  new ResizeObserver(sync).observe(p);
+  addEventListener("resize", sync);
+  setSheet("half");
+  // dodir na ručku mijenja visinu; povlačenje ručke postavlja najbližu visinu
+  let drag = null;
+  g.addEventListener("pointerdown", (e) => { drag = { y: e.clientY, h: p.offsetHeight, moved: false }; g.setPointerCapture(e.pointerId); });
+  g.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y;
+    if (Math.abs(dy) > 6) drag.moved = true;
+    if (drag.moved) { p.style.transition = "none"; p.style.maxHeight = `${Math.max(90, drag.h - dy)}px`; p.style.height = p.style.maxHeight; }
+  });
+  const end = (e) => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    p.style.transition = ""; p.style.maxHeight = ""; p.style.height = "";
+    const cur = SHEET.indexOf(p.dataset.sheet || "half");
+    if (!d.moved) return setSheet(SHEET[(cur + 1) % 3]);
+    const h = d.h - (e.clientY - d.y), vh = innerHeight;
+    setSheet(h < vh * 0.3 ? "peek" : h < vh * 0.68 ? "half" : "full");
+  };
+  g.addEventListener("pointerup", end);
+  g.addEventListener("pointercancel", end);
+  // povlačenje karte spušta panel, da se vidi više mora
+  map.on("dragstart", () => { if (isPhone() && p.dataset.sheet === "full") setSheet("half"); });
+  if (isPhone()) $("q").placeholder = "Traži mjesto";
+  // natpis o izvorima: jedan red, dodir ga otvara
+  document.querySelector(".leaflet-control-attribution")?.addEventListener("click", (e) => {
+    if (isPhone() && e.target.tagName !== "A") e.currentTarget.classList.toggle("open");
+  });
 }
 
 function toast(msg) {

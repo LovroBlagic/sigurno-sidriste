@@ -150,17 +150,38 @@ body {
 .grip { display: none; }
 
 @media (max-width: 720px) {
-  :root { --bar-h: 50px; }
+  :root { --bar-h: 46px; }
   .topbar { top: calc(var(--bar-top) + 8px); left: 8px; right: 8px; }
   .brand h1 { display: none; }
   .brand { padding: 9px; }
+  /* panel na dnu: tri visine, mijenja se ručkom */
   .panel {
-    top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 52vh;
-    border-radius: var(--radius) 6px 0 0; border-bottom: 0; padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+    top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 50vh;
+    border-radius: 16px 16px 0 0; border: 0; border-top: 4px solid var(--sea); padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+    transition: max-height .25s ease; overscroll-behavior: contain; box-shadow: 0 -8px 30px rgba(0,0,0,.18);
   }
-  .grip { display: block; width: 42px; height: 5px; border-radius: 3px; background: var(--line); margin: 2px auto 10px; }
-  .leaflet-bottom { bottom: 52vh; }
+  .panel.sheet-peek { max-height: 132px; overflow: hidden; }
+  .panel.sheet-half { max-height: 50vh; }
+  .panel.sheet-full { max-height: calc(100dvh - var(--bar-top) - 70px); }
+  .grip { display: grid; place-items: center; position: sticky; top: 0; z-index: 2; width: calc(100% + 32px); height: 26px; margin: 0 -16px 4px;
+    background: var(--paper); border: 0; padding: 0; cursor: grab; touch-action: none; }
+  .grip span { width: 44px; height: 5px; border-radius: 3px; background: var(--line); }
+  .leaflet-bottom { bottom: var(--sheet-now, 50vh); transition: bottom .25s ease, opacity .2s; }
+  body[data-sheet="full"] .leaflet-bottom { opacity: 0; pointer-events: none; }
   .search input { font-size: 16px; } /* bez zumiranja na iOS-u */
+  .leaflet-control-zoom { display: none; } /* na mobitelu se zumira prstima */
+  .leaflet-top.leaflet-right { top: calc(var(--bar-top) + 64px); }
+  .leaflet-control-attribution { max-width: calc(100vw - 110px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 9px; }
+  .leaflet-control-attribution.open { white-space: normal; max-width: 100vw; }
+  /* traka s podacima: udaljenost i smjer tek kad je poznat položaj broda */
+  body:not(.has-me) .databar .db-cell:nth-child(2), body:not(.has-me) .databar .db-cell:nth-child(3) { display: none; }
+  body:not(.has-me) .databar { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+  .db-cell b { font-size: 15px; }
+  .toast { max-width: calc(100vw - 32px); font-size: 13px; width: max-content; }
+  /* veći ciljevi za prst */
+  .spots button { padding: 14px 12px; }
+  .back, .btn { min-height: 44px; }
+  .boat-form input { font-size: 16px; }
 }
 
 h2 { font: 600 20px/1.25 var(--font-display); margin: 0 0 8px; }
