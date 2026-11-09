@@ -245,7 +245,7 @@ export function createEngine({ loadJSON, fetchImpl = globalThis.fetch.bind(globa
         return v;
       } catch (e) {
         lastErr = e;
-        if (/HTTP 4\d\d/.test(e.message) && !/429/.test(e.message)) throw e;
+        if (e?.offline || (/HTTP 4\d\d/.test(e.message) && !/429/.test(e.message))) throw e;
       } finally { release(host); }
     }
     throw lastErr;

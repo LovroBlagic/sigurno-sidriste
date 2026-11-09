@@ -10,6 +10,13 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0b1118">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="eSidro">
 </head>
 <body>
   <div id="map" aria-label="Karta hrvatskog Jadrana"></div>
@@ -65,6 +72,7 @@
     </button>
     <p class="hint">ili dodirni more na karti za provjeru jedne točke</p>
     <div class="boat" id="boat"></div>
+    <div class="boat" id="saved" hidden></div>
     <div class="boat" id="obs"></div>
     <details class="more">
       <summary>Legenda i slojevi</summary>

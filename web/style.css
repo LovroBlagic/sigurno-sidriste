@@ -227,6 +227,9 @@ details.more .legend { margin-top: 12px; }
 .chain b { font: 600 20px var(--font-mono); color: var(--sea); }
 .actions { display: flex; gap: 8px; margin-top: 14px; }
 
+.saved-tag { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; background: #eef3f7; color: #34495c; font-size: 13px; border-left: 3px solid var(--sea); }
+.is-offline .databar { background: #3a2a0b; }
+.is-offline .databar::after { content: "BEZ INTERNETA"; position: absolute; right: 8px; bottom: 2px; font: 600 9px var(--font-body); letter-spacing: .1em; color: #f2c14e; }
 .toast {
   position: fixed; left: 50%; top: calc(var(--bar-top) + 76px); transform: translateX(-50%); z-index: 2000;
   background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: var(--radius); font-weight: 500; box-shadow: var(--shadow);

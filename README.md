@@ -6,6 +6,8 @@ Gdje sidriti na hrvatskom Jadranu. Upiši mjesto (npr. *Pakleni otoci*), pritisn
 
 **Moj brod:** upiši gaz, duljinu lanca i duljinu broda, pa aplikacija odbacuje preplitka i preduboka mjesta i provjerava krug okretanja. Gumb za lokaciju traži sidrišta oko tvog broda i za svako pokazuje udaljenost i smjer (km, NM).
 
+**Bez interneta:** aplikacija se otvara i bez signala (može se dodati na početni zaslon mobitela). Zadnja pretraga ostaje spremljena s prognozom za 24 h, a dodir na kartu provjerava dno, posidoniju, zaštićena područja i opasnosti iz spremljenih slojeva. Dubinu, zaklon i vjetar treba provjeriti kad se vrati mreža.
+
 **Uživo za testiranje:** https://sigurno-sidriste.vercel.app · MCP: `https://sigurno-sidriste.vercel.app/mcp` · API: [`/openapi.json`](https://sigurno-sidriste.vercel.app/openapi.json)
 
 **Dokumentacija:** [tehnička arhitektura, izvori i licence, preduvjeti, integracija](docs/ARHITEKTURA.md) · [OpenAPI opis API-ja](web/openapi.json)

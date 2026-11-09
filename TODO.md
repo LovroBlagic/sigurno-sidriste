@@ -43,7 +43,7 @@ Rješenje bez videa se ne ocjenjuje (Pravila, pogl. VIII).
 ## 4. Moguće funkcionalnosti (nakon predaje / plan razvoja)
 
 - [ ] **Prijave korisnika** - „ovdje ima posidonije koju karta ne pokazuje“ i „netko sidri na posidoniji“; administratorski pregled za javne ustanove parkova (paziti na GDPR kod fotografija)
-- [ ] **Rad bez interneta** - spremanje slojeva i zadnjih rezultata na uređaj
+- [ ] **Rad bez interneta, 2. dio** - gumb „spremi područje“ za naše pločice dubine; nova pretraga bez mreže nije moguća (dubina i vjetar su uživo)
 - [ ] **Službena upozorenja DHMZ-a** u načinu rada za loše vrijeme
 - [ ] **Najbliža luka ili marina** kao zamjena kad nema zaklona
 - [ ] **Zone sidrenja i polja plutača u parkovima** - uz podatke javnih ustanova
@@ -63,3 +63,4 @@ Rješenje bez videa se ne ocjenjuje (Pravila, pogl. VIII).
 - [x] Moj brod (gaz, lanac, duljina) i položaj broda
 - [x] Način rada za loše vrijeme (prognoza 24 h, upozorenje, samo zaklonjena mjesta, simulacija)
 - [x] MIT licenca, popis tima, izjava o korištenju AI alata
+- [x] Rad bez interneta: aplikacija se otvara bez signala, zadnja pretraga je spremljena, provjera dna i posidonije iz spremljenih slojeva; može se dodati na početni zaslon mobitela

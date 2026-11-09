@@ -1,5 +1,5 @@
 /* eSidro - web sučelje. Sva logika je u core.js (dijeli se s MCP serverom). */
-import { HOLD, windOf, normBoat, depthLabel } from "./core.js";
+import { HOLD, windOf, normBoat, depthLabel, createEngine } from "./core.js";
 
 const GRASS = "#2a9d5c";
 
@@ -279,6 +279,7 @@ function showHome() {
   body.querySelector("[data-action=find]").onclick = () => { const c = map.getCenter(); find(c.lat, c.lng); };
   renderBoat(body.querySelector("#boat"), false);
   renderObs(body.querySelector("#obs"));
+  renderSavedCard();
   clearPin();
   state.results.clearLayers();
   setHash(null);
@@ -506,6 +507,52 @@ function windStrip(w) {
     ${w.simulated ? `<p class="sim">SIMULACIJA - prognoza je izmišljena za demonstraciju načina rada za loše vrijeme</p>` : ""}`;
 }
 
+/* ---------------- rad bez interneta ---------------- */
+// Service worker sprema aplikaciju i slojeve; ovdje: spremljena zadnja pretraga i provjera točke bez mreže.
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+const SAVED_KEY = "sidriste.lastFind";
+const offline = (e) => !navigator.onLine || e instanceof TypeError || /Failed to fetch|NetworkError|Load failed|Bez interneta|HTTP 50[34]/i.test(e?.message || "");
+function saveFind(f) { try { localStorage.setItem(SAVED_KEY, JSON.stringify(f)); } catch { /* pun ili privatni način */ } }
+function loadSaved() { try { return JSON.parse(localStorage.getItem(SAVED_KEY)); } catch { return null; } }
+const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `prije ${Math.max(1, m)} min` : m < 48 * 60 ? `prije ${Math.round(m / 60)} h` : `prije ${Math.round(m / 1440)} dana`; };
+function openSaved(f) {
+  state.req++;
+  clearPin();
+  state.results.clearLayers();
+  state.results.addLayer(L.circle([f.lat, f.lng], { radius: (f.res.radiusKm || 4) * 1000, color: "#1d4e6e", weight: 1.5, dashArray: "6 6", fillOpacity: 0.04, interactive: false }));
+  state.lastFind = f;
+  setSheet("half");
+  map.fitBounds(L.latLng(f.lat, f.lng).toBounds((f.res.radiusKm || 4) * 2000), { paddingTopLeft: padTL(), paddingBottomRight: padBR() });
+  renderFind(f.res, f.label, f.savedAt);
+}
+function renderSavedCard() {
+  const f = loadSaved(), el = body.querySelector("#saved");
+  if (!el) return;
+  if (!f?.res?.spots?.length) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<button type="button" class="boat-sum"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+    <span><b>Zadnja pretraga${f.label ? `: ${esc(f.label)}` : ""}</b><small>${f.res.spots.length} sidrišta · ${ago(f.savedAt)} · dostupno i bez interneta</small></span><u>Otvori</u></button>`;
+  el.querySelector("button").onclick = () => openSaved(f);
+}
+// Provjera točke u pregledniku, samo sa spremljenim slojevima (dno, morska trava, zaštićena područja, opasnosti).
+// Dubina, zaklon i vjetar dolaze s mreže, pa se bez nje jasno označe kao neprovjereni.
+let offlineEngine = null;
+async function offlineCheck(lat, lng) {
+  offlineEngine ||= createEngine({
+    loadJSON: async (name) => { const r = await fetch(`data/${name}`); if (!r.ok) throw new Error(name); return r.json(); },
+    fetchImpl: () => Promise.reject(Object.assign(new TypeError("Bez interneta"), { offline: true })), // bez ponavljanja
+  });
+  const s = await offlineEngine.checkSpot(lat, lng, { extraSources: false, boat: state.boat });
+  s.offline = true;
+  s.facts = s.facts.filter((f) => !["wind", "forecast", "waves", "shelter"].includes(f.id) || f.lvl !== "na");
+  return s;
+}
+addEventListener("offline", () => { document.body.classList.add("is-offline"); toast("Bez interneta: radi provjera dna i posidonije te spremljena pretraga"); });
+addEventListener("online", () => { document.body.classList.remove("is-offline"); toast("Ponovno na mreži"); });
+if (!navigator.onLine) document.body.classList.add("is-offline");
+
 /* ---------------- traženje sidrišta ---------------- */
 async function find(lat, lng, label) {
   const req = ++state.req;
@@ -524,16 +571,21 @@ async function find(lat, lng, label) {
   try {
     res = await engine.findSpots(lat, lng, { radiusKm: 4 });
   } catch (e) {
-    if (req === state.req) body.innerHTML = `${back()}<p class="tip">Pretraga nije uspjela: ${esc(e.message)}</p>`, wireBack();
+    if (req !== state.req) return;
+    const saved = loadSaved();
+    if (offline(e) && saved) { toast("Bez interneta - prikazujem zadnju spremljenu pretragu"); return openSaved(saved); }
+    body.innerHTML = `${back()}<p class="tip">${offline(e) ? "Bez interneta nema nove pretrage: dubina, zaklon i vjetar dolaze s mreže. Dodirni more na karti za provjeru dna i posidonije sa spremljenim slojevima." : `Pretraga nije uspjela: ${esc(e.message)}`}</p>`;
+    wireBack();
     return;
   }
   if (req !== state.req) return;
+  saveFind({ lat, lng, label, res, savedAt: Date.now() });
   state.lastFind = { lat, lng, label, res };
   setHash(`f=${lat.toFixed(4)},${lng.toFixed(4)}`);
   renderFind(res, label);
 }
 
-function renderFind(res, label) {
+function renderFind(res, label, savedAt) {
   state.results.eachLayer((l) => { if (l instanceof L.Marker) state.results.removeLayer(l); });
   res.spots.forEach((s, i) => {
     state.results.addLayer(L.marker([s.lat, s.lon], {
@@ -544,6 +596,7 @@ function renderFind(res, label) {
   barWind(w);
   const windLine = w ? `Vjetar sada ${Math.round(w.speed)} čv, udari do ${Math.round(Math.max(w.gust, w.gustMax24 ?? w.gustMax12 ?? 0))} čv u 24 h${res.wind ? ` · najjače puše ${res.wind}` : ""}${res.widened ? ` · krug proširen na ${res.radiusKm} km` : ""}` : "";
   body.innerHTML = `${back()}<h2>${label ? esc(label) : "Sidrišta u blizini"}</h2>
+    ${savedAt ? `<p class="saved-tag">Spremljeno ${ago(savedAt)} · prognoza vrijedi 24 h od pretrage</p>` : ""}
     ${alertBox(res.alert, true)}
     ${windLine ? `<p class="lead">${windLine}</p>` : ""}
     ${windStrip(w)}
@@ -601,6 +654,10 @@ async function check(lat, lng) {
   wireBack();
   let s;
   try { s = await engine.checkSpot(lat, lng, { water: await osmWater(lat, lng) }); } catch (e) {
+    if (offline(e)) {
+      try { s = await offlineCheck(lat, lng); } catch { /* slojevi nisu spremljeni */ }
+      if (s && req === state.req) { setHash(`p=${lat.toFixed(4)},${lng.toFixed(4)}`); return showSpot(s, false); }
+    }
     if (req === state.req) { body.innerHTML = `${back()}<p class="tip">Provjera nije uspjela: ${esc(e.message)}</p>`; wireBack(); }
     return;
   }
@@ -620,6 +677,7 @@ function showSpot(s, fromList) {
       <div class="title">${s.title}</div>
       <div class="sub">${esc(s.reason)}</div>
     </div>
+    ${s.offline ? `<p class="saved-tag">Bez interneta: provjereni su dno, morska trava, zaštićena područja i opasnosti iz spremljenih slojeva. Dubinu, zaklon i vjetar provjeri dubinomjerom i prognozom.</p>` : ""}
     ${s.chain ? `<p class="chain"><b>${s.chain} m</b> lanca${s.depth != null ? ` · ${depthLabel(s)} dubine` : ""}</p>` : ""}
     ${alertBox(s.weather?.alert, false)}
     ${state.me ? `<p class="from-me">${BOAT_SVG}${esc(fromMe(s.lat, s.lon).text)}</p>` : ""}
@@ -636,7 +694,7 @@ function showSpot(s, fromList) {
     </div>
     <p class="sources">Dno: EMODnet Geology · Morska trava: EMODnet Seabed Habitats, UNEP-WCMC, HAOP · Dubina: EMODnet Bathymetry · Zaštićena područja i Natura 2000: Bioportal · Oznake: Plovput (data.gov.hr) · Vrijeme: Open-Meteo · Mjesta: OpenStreetMap.
     Pomoć pri planiranju, ne navigacijska karta - uvijek provjeri službenu kartu, dubinomjer i <a href="https://meteo.hr/prognoze.php?section=prognoze_specp&param=jadran" target="_blank" rel="noopener">pomorsku prognozu DHMZ-a</a>.</p>`;
-  if (fromList) document.getElementById("tolist").onclick = () => renderFind(state.lastFind.res, state.lastFind.label);
+  if (fromList) document.getElementById("tolist").onclick = () => renderFind(state.lastFind.res, state.lastFind.label, state.lastFind.savedAt);
   else wireBack();
   document.getElementById("share").onclick = () => share(s);
 }
@@ -858,7 +916,11 @@ document.getElementById("search").addEventListener("submit", async (e) => {
     const g = await engine.geocode(q);
     if (!g) return toast(`Ne mogu pronaći "${q}"`);
     find(g.lat, g.lon, g.name);
-  } catch { toast("Pretraga mjesta trenutno ne radi"); }
+  } catch (e) {
+    const saved = loadSaved();
+    if (offline(e) && saved) { toast("Bez interneta nema traženja mjesta - prikazujem zadnju spremljenu pretragu"); return openSaved(saved); }
+    toast(offline(e) ? "Bez interneta nema traženja mjesta. Pomakni kartu i dodirni more za provjeru dna." : "Pretraga mjesta trenutno ne radi");
+  }
 });
 
 document.getElementById("locate").addEventListener("click", () => {
