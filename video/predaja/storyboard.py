@@ -16,6 +16,11 @@ for f in OUT.glob("*.jpg"): f.unlink()
 
 # što piše na ekranu u svakoj sceni (iz composition.html)
 INFO = {
+    "hook": ("Svako sidro negdje padne", "Ilustracija: sidro pada s broda na livadu posidonije, oblak pijeska, iščupani listovi"),
+    "meadow": ("Posidonia oceanica", "Ilustracija livade; činjenice: 1 cm godišnje · prioritetno stanište EU (1120*) · dom ribama · čuva obalu; „Raste stoljećima. Nestaje u jednoj noći.“"),
+    "dilemma": ("Šest pitanja, sedam izvora", "Pitanja oko mobitela (dubina, dno, posidonija, vjetar, park, opasnosti) pretvaraju se u 7 razbacanih izvora podataka"),
+    "night": ("Noću stiže bura", "Noćna ilustracija: udari bure, sidro ore po dnu, brod klizi prema stijenama"),
+    "reveal": ("eSidro: jedno pitanje, jedan odgovor", "Logo i sedam provjera: dno, posidonija, dubina, zaklon, vjetar, parkovi, opasnosti"),
     "problem": ("Problem", "Satelitski snimci Paklenih otoka; naslovi: Tisuće sidara · Posidonia oceanica 1 cm godišnje · 1 sidro = desetljeća rasta · Loše sidrište = opasnost za ljude i brodove"),
     "users": ("Za koga je eSidro?", "Kartice: Nautičari · Čarter gosti · Čarter tvrtke · Javne ustanove parkova · AI asistenti"),
     "data": ("Sedam slojeva, jedan odgovor", "3D ploče slojeva karte; data.gov.hr (3 skupa): zaštićena područja i Natura 2000 (Bioportal), oznake opasnosti (Plovput); EMODnet dno i staništa; uživo: dubina, Open-Meteo, OpenStreetMap"),
