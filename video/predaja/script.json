@@ -1,0 +1,149 @@
+[
+ {
+  "id": "hook",
+  "chapter": "01 · Problem",
+  "dur": 8,
+  "text": "Svako sidro negdje padne. Pitanje je samo gdje.",
+  "naracija": "Svako sidro negdje padne. Pitanje je samo gdje."
+ },
+ {
+  "id": "meadow",
+  "chapter": "01 · Problem",
+  "dur": 16,
+  "text": "Posidonija je morska cvjetnica. Raste centimetar godišnje. Prioritetno stanište. Dom ribama, čuva obalu. Livada od stoljeća nestaje u jednoj noći.",
+  "naracija": "Ispod nas raste posidonija, morska cvjetnica koja naraste tek centimetar godišnje. Dom je ribama i čuva obalu. Livada stara stoljećima nestaje u jednoj noći."
+ },
+ {
+  "id": "dilemma",
+  "chapter": "01 · Problem",
+  "dur": 12,
+  "text": "Šest pitanja prije sidrenja. Koliko je duboko? Drži li dno? Ima li posidonije? Odakle puše noćas? Je li park prirode? Ima li opasnosti? Odgovori su razbacani po sedam izvora. Odluka pada u sumrak.",
+  "naracija": "Prije svakog sidrenja ista pitanja: koliko je duboko, drži li dno, ima li posidonije i odakle puše noćas. Odgovori postoje, ali su razbacani po sedam izvora."
+ },
+ {
+  "id": "night",
+  "chapter": "01 · Problem",
+  "dur": 8,
+  "text": "Noću stiže bura. Sidro ore po dnu. Brod klizi prema stijenama.",
+  "naracija": "A kad noću stigne bura, sidro ore po dnu i brod klizi prema stijenama."
+ },
+ {
+  "id": "reveal",
+  "chapter": "02 · Rješenje i korisnici",
+  "dur": 6,
+  "text": "eSidro. Jedno pitanje. Jedan odgovor.",
+  "naracija": "Zato smo napravili eSidro. Jedno pitanje, jedan odgovor."
+ },
+ {
+  "id": "users",
+  "chapter": "02 · Rješenje i korisnici",
+  "dur": 7,
+  "text": "eSidro je napravljen za nautičare, posebno za goste čarter flota s manje iskustva, za čarter tvrtke, za javne ustanove parkova i za AI asistente koje nautičari sve češće pitaju za savjet.",
+  "naracija": "Za nautičare i čarter goste, čarter tvrtke, parkove prirode i AI asistente."
+ },
+ {
+  "id": "data",
+  "chapter": "03 · Podaci",
+  "dur": 12,
+  "text": "Aplikacija spaja otvorene podatke. S Portala otvorenih podataka koristi zaštićena područja i ekološku mrežu Natura 2000 s Bioportala te Plovputov registar objekata sigurnosti plovidbe. Uz njih su EMODnet karte dna, morskih staništa i dubine, prognoza Open-Meteo i OpenStreetMap.",
+  "naracija": "Spajamo otvorene podatke: zaštićena područja, Naturu 2000 i Plovputove oznake s Portala otvorenih podataka, uz EMODnet, Open-Meteo i OpenStreetMap."
+ },
+ {
+  "id": "search",
+  "chapter": "04 · Demonstracija",
+  "dur": 11,
+  "text": "Upišem mjesto, na primjer Pakleni otoci, i pritisnem jedan gumb. U krugu od četiri kilometra aplikacija mjeri dubinu, čita dno i provjerava zaklon u osam smjerova. Za nekoliko sekundi dobijem pet najboljih sidrišta.",
+  "naracija": "Upišem mjesto i pritisnem gumb. Aplikacija mjeri dubinu, čita dno i traži zaklon, pa predloži pet najboljih sidrišta."
+ },
+ {
+  "id": "detail",
+  "chapter": "04 · Demonstracija",
+  "dur": 7,
+  "text": "Za svako mjesto vidim vrstu dna, raspon dubine, od kojih je vjetrova zaklonjeno i koliko lanca trebam pustiti. Svaka ocjena dolazi s objašnjenjem.",
+  "naracija": "Za svako mjesto vidim dno, dubinu, zaklon i potreban lanac."
+ },
+ {
+  "id": "posidonia",
+  "chapter": "04 · Demonstracija",
+  "dur": 5,
+  "text": "Dodirnem li livadu posidonije, odgovor je jasan: ne sidri ovdje.",
+  "naracija": "Na posidoniji odgovor je jasan: ne sidri ovdje."
+ },
+ {
+  "id": "boat",
+  "chapter": "04 · Demonstracija",
+  "dur": 6,
+  "text": "U Moj brod upišem gaz, duljinu lanca i duljinu broda. Preplitka i preduboka mjesta otpadaju, a aplikacija provjerava i krug okretanja.",
+  "naracija": "Upišem gaz, lanac i duljinu, a aplikacija odbaci neprikladna mjesta."
+ },
+ {
+  "id": "storm",
+  "chapter": "04 · Demonstracija",
+  "dur": 8,
+  "text": "Kad u idućih dvadeset četiri sata stiže jak vjetar, eSidro to istakne, pokaže udare po satima i nudi samo mjesta zaklonjena baš od tog vjetra.",
+  "naracija": "Kad stiže jak vjetar, nudi samo mjesta zaklonjena baš od njega."
+ },
+ {
+  "id": "protected",
+  "chapter": "04 · Demonstracija",
+  "dur": 6,
+  "text": "Upozorava i na nacionalne parkove i parkove prirode s posebnim pravilima, te na Plovputove oznake podvodnih opasnosti u blizini.",
+  "naracija": "Upozorava na parkove prirode i podvodne opasnosti."
+ },
+ {
+  "id": "sdb",
+  "chapter": "04 · Demonstracija",
+  "dur": 5,
+  "text": "Dubina sa satelita od nula do petnaest metara, procijenjena iz snimaka Sentinel-2 i kalibrirana na ICESat-2.",
+  "naracija": "Eksperimentalno: dubina iz satelitskih snimaka."
+ },
+ {
+  "id": "sos",
+  "chapter": "04 · Demonstracija",
+  "dur": 6,
+  "text": "SOS prikazuje postupak MAYDAY, kanal 16, brojeve 195 i 112 te položaj u stupnjevima i minutama.",
+  "naracija": "U nuždi: postupak MAYDAY i točan položaj."
+ },
+ {
+  "id": "mobile",
+  "chapter": "05 · Mobitel i bez interneta",
+  "dur": 8,
+  "text": "Na mobitelu panel ima tri visine. Karta ostaje vidljiva iznad panela. Aplikacija se dodaje na početni zaslon.",
+  "naracija": "Na mobitelu karta ostaje vidljiva, a aplikacija se dodaje na početni zaslon."
+ },
+ {
+  "id": "offline",
+  "chapter": "05 · Mobitel i bez interneta",
+  "dur": 8,
+  "text": "Bez interneta aplikacija se i dalje otvara. Zadnja pretraga ostaje spremljena. Dno i posidonija provjeravaju se iz spremljenih slojeva.",
+  "naracija": "Bez signala radi zadnja pretraga i provjera posidonije."
+ },
+ {
+  "id": "mcp",
+  "chapter": "06 · AI asistenti",
+  "dur": 8,
+  "text": "Isto znanje dostupno je AI asistentima preko MCP servera. Nautičar samo pita gdje sidriti večeras, a asistent odgovara stvarnim podacima.",
+  "naracija": "Isto znanje imaju AI asistenti preko MCP servera."
+ },
+ {
+  "id": "tech",
+  "chapter": "07 · Tehnički pristup",
+  "dur": 12,
+  "text": "Web, javni API i MCP server dijele jednu jezgru. Slojevi su pripremljeni iz INSPIRE servisa u GeoJSON, a dubina i vrijeme stižu uživo. Ocjena je pravilo s bodovima, pa je svaka presuda provjerljiva. API je opisan standardom OpenAPI, a kod je otvoren pod MIT licencom.",
+  "naracija": "Jedna jezgra za web, API i MCP. Otvoreni standardi i otvoren kod pod MIT licencom."
+ },
+ {
+  "id": "benefit",
+  "chapter": "08 · Korist",
+  "dur": 11,
+  "text": "Korist je dvostruka: manje uništene posidonije i mirnija, sigurnija noć na sidru. Parkovi dobivaju alat za edukaciju, a sustav se lako proširuje službenim zonama sidrenja i preciznijom batimetrijom.",
+  "naracija": "Manje uništene posidonije i mirnija noć na sidru."
+ },
+ {
+  "id": "outro",
+  "chapter": "",
+  "dur": 6,
+  "text": "eSidro. Čuvaj more, spavaj mirno.",
+  "naracija": "eSidro. Čuvaj more, spavaj mirno."
+ }
+]

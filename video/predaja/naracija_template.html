@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eSidro naracija</title>
+<style>
+  :root { --bg:#0b1118; --panel:#111b26; --line:#223244; --ink:#e8eef4; --soft:#93a9bd; --rec:#ff4d4d; --ok:#2fd08a; --acc:#3fa7e0; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, "IBM Plex Sans", system-ui, sans-serif; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  .app { display:grid; grid-template-columns:290px minmax(0, 1fr); height:100vh; }
+  aside { border-right:1px solid var(--line); overflow:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  aside h1 { font-size:17px; }
+  aside .sub { color:var(--soft); font-size:13px; }
+  .list { display:grid; gap:4px; }
+  .it { display:grid; grid-template-columns:22px 1fr auto; gap:8px; align-items:center; text-align:left; background:none; border:1px solid transparent; border-radius:8px; padding:7px 8px; }
+  .it:hover { background:var(--panel); }
+  .it.on { background:var(--panel); border-color:var(--acc); }
+  .it .st { width:18px; height:18px; border-radius:50%; border:2px solid var(--line); display:grid; place-items:center; font-size:11px; }
+  .it.done .st { background:var(--ok); border-color:var(--ok); color:#06261a; }
+  .it b { font-weight:600; font-size:14px; }
+  .it small { color:var(--soft); font-size:12px; display:block; }
+  .it .d { color:var(--soft); font-size:12px; }
+  .progress { height:6px; background:var(--line); border-radius:3px; overflow:hidden; }
+  .progress div { height:100%; background:var(--ok); width:0; transition:width .3s; }
+  .side-actions { display:grid; gap:8px; margin-top:auto; padding-top:10px; border-top:1px solid var(--line); }
+  .btn { border:1px solid var(--line); background:var(--panel); border-radius:10px; padding:10px 14px; font-weight:600; }
+  .btn:hover { border-color:var(--acc); }
+  .btn.primary { background:var(--acc); border-color:var(--acc); color:#04121d; }
+  .btn.rec { background:var(--rec); border-color:var(--rec); color:#fff; }
+  .btn:disabled { opacity:.4; cursor:default; }
+  main { display:grid; grid-template-rows:auto auto 1fr; min-height:0; }
+  .stage { position:relative; background:#000; display:grid; place-items:center; max-height:52vh; }
+  video { max-width:100%; max-height:52vh; display:block; }
+  .count { position:absolute; inset:0; display:grid; place-items:center; font:800 160px/1 system-ui; color:#fff; text-shadow:0 6px 40px rgba(0,0,0,.6); pointer-events:none; }
+  .recdot { position:absolute; top:14px; left:14px; display:none; align-items:center; gap:8px; background:rgba(0,0,0,.6); padding:6px 12px; border-radius:999px; font-weight:700; }
+  .recdot i { width:12px; height:12px; border-radius:50%; background:var(--rec); animation:blink 1s infinite; }
+  .recording .recdot { display:flex; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px 18px; border-bottom:1px solid var(--line); }
+  .controls .sp { flex:1; }
+  .meter { width:140px; height:10px; background:var(--line); border-radius:5px; overflow:hidden; }
+  .meter div { height:100%; width:0; background:linear-gradient(90deg, var(--ok) 70%, #f2c14e 85%, var(--rec)); }
+  label.tg { display:flex; gap:6px; align-items:center; color:var(--soft); font-size:13px; }
+  .prompt { overflow:auto; padding:22px 28px 40px; }
+  .prompt .head { display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; margin-bottom:12px; color:var(--soft); }
+  .prompt .head b { color:var(--ink); font-size:18px; }
+  .text { font-size:clamp(26px, 2.6vw, 40px); line-height:1.45; font-weight:500; max-width:1100px; }
+  .text span { color:#5f7286; transition:color .12s; }
+  .text span.read { color:var(--ink); }
+  .text span.now { color:#fff; background:rgba(63,167,224,.28); border-radius:6px; }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:16px 0 10px; max-width:1100px; }
+  .bar div { height:100%; width:0; background:var(--acc); }
+  .tips { color:var(--soft); font-size:13px; max-width:1100px; }
+  kbd { border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:0 6px; font-size:12px; color:var(--ink); }
+  .msg { color:#f2c14e; font-size:13px; }
+  @media (max-width: 900px) { .app { grid-template-columns:1fr; height:auto; } aside { border-right:0; border-bottom:1px solid var(--line); max-height:40vh; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div><h1>eSidro · naracija</h1><div class="sub" id="sum"></div></div>
+    <div class="progress"><div id="prog"></div></div>
+    <div class="list" id="list"></div>
+    <div class="side-actions">
+      <button class="btn" id="playall">▶ Pusti cijeli video s naracijom</button>
+      <button class="btn primary" id="export">⬇ Preuzmi naracija.wav</button>
+      <div class="sub">Snimke se čuvaju u ovom pregledniku (i nakon osvježavanja). Gotov WAV ugradi u video skriptom <code>dodaj_naraciju.sh</code>.</div>
+    </div>
+  </aside>
+  <main>
+    <div class="stage" id="stage">
+      <video id="v" src="eSidro-predaja.mp4" preload="auto" playsinline></video>
+      <div class="count" id="count"></div>
+      <div class="recdot"><i></i>SNIMANJE</div>
+    </div>
+    <div class="controls">
+      <button class="btn rec" id="rec">● Snimi scenu</button>
+      <button class="btn" id="play" disabled>▶ Preslušaj s videom</button>
+      <button class="btn" id="del" disabled>Obriši snimku</button>
+      <button class="btn" id="next">Sljedeća →</button>
+      <span class="sp"></span>
+      <label class="tg"><input type="checkbox" id="music"> glazba tijekom snimanja (samo sa slušalicama)</label>
+      <span class="sub">mikrofon</span><div class="meter"><div id="lvl"></div></div>
+    </div>
+    <div class="prompt">
+      <div class="head"><b id="title"></b><span id="info"></span></div>
+      <div class="text" id="text"></div>
+      <div class="bar"><div id="tbar"></div></div>
+      <div class="tips"><kbd>Razmak</kbd> snimi / zaustavi · <kbd>P</kbd> preslušaj · <kbd>→</kbd> <kbd>←</kbd> sljedeća / prethodna scena · <kbd>Del</kbd> obriši.
+        Plava oznaka ide kroz tekst tempom scene: drži se nje i završi prije kraja trake. Najbolje sa slušalicama, u tihoj prostoriji, 15–20 cm od mikrofona.</div>
+      <div class="msg" id="msg"></div>
+    </div>
+  </main>
+</div>
+<script>
+const DATA = __DATA__;            // {total, scenes:[{id,title,chapter,start,dur,text}]}
+const S = DATA.scenes;
+const $ = (id) => document.getElementById(id);
+const v = $("v");
+let cur = 0, busy = false, stopFn = null;
+
+/* ---------- spremanje snimki (IndexedDB) ---------- */
+const db = new Promise((ok, no) => {
+  const r = indexedDB.open("esidro-naracija", 1);
+  r.onupgradeneeded = () => r.result.createObjectStore("takes");
+  r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+});
+const tx = async (mode, fn) => { const d = await db; return new Promise((ok, no) => { const t = d.transaction("takes", mode); const req = fn(t.objectStore("takes")); t.oncomplete = () => ok(req?.result); t.onerror = () => no(t.error); }); };
+const takes = {};                 // id -> {blob, buf}
+async function loadTakes() {
+  const d = await db;
+  await new Promise((ok) => {
+    const c = d.transaction("takes").objectStore("takes").openCursor();
+    c.onsuccess = () => { const x = c.result; if (!x) return ok(); takes[x.key] = { blob: x.value }; x.continue(); };
+  });
+}
+
+/* ---------- zvuk ---------- */
+let ac, stream, analyser, recorder;
+async function audio() {
+  if (stream) return;
+  ac = new AudioContext({ sampleRate: 48000 });
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: false, channelCount: 1 } });
+  analyser = ac.createAnalyser(); analyser.fftSize = 1024;
+  ac.createMediaStreamSource(stream).connect(analyser);
+  const a = new Float32Array(analyser.fftSize);
+  (function meter() {
+    analyser.getFloatTimeDomainData(a);
+    let p = 0; for (const x of a) p = Math.max(p, Math.abs(x));
+    $("lvl").style.width = `${Math.min(100, p * 140)}%`;
+    requestAnimationFrame(meter);
+  })();
+}
+async function bufferOf(id) {
+  const t = takes[id]; if (!t) return null;
+  if (!t.buf) t.buf = await ac.decodeAudioData(await t.blob.arrayBuffer());
+  return t.buf;
+}
+
+/* ---------- prikaz ---------- */
+const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+function renderList() {
+  $("list").innerHTML = S.map((s, i) => `<button class="it ${i === cur ? "on" : ""} ${takes[s.id] ? "done" : ""}" data-i="${i}">
+    <span class="st">${takes[s.id] ? "✓" : ""}</span><span><b>${s.title}</b><small>${s.chapter || "Kraj"}</small></span><span class="d">${s.dur}s</span></button>`).join("");
+  const n = S.filter((s) => takes[s.id]).length;
+  $("sum").textContent = `${n} / ${S.length} scena snimljeno · video ${fmt(DATA.total)}`;
+  $("prog").style.width = `${(n / S.length) * 100}%`;
+}
+function renderScene() {
+  const s = S[cur];
+  $("title").textContent = `${cur + 1}. ${s.title}`;
+  const words = s.text.split(/\s+/);
+  $("info").textContent = `${fmt(s.start)}–${fmt(s.start + s.dur)} · ${s.dur} s · ${words.length} riječi`;
+  $("text").innerHTML = words.map((w) => `<span>${w}</span>`).join(" ");
+  $("play").disabled = $("del").disabled = !takes[s.id];
+  $("tbar").style.width = "0";
+  v.currentTime = s.start + 0.05;
+  renderList();
+}
+// oznaka kroz tekst: od 0,3 s do 0,6 s prije kraja scene, po duljini riječi
+function follow(lt) {
+  const s = S[cur], spans = [...$("text").children];
+  const total = spans.reduce((a, x) => a + x.textContent.length + 1, 0);
+  const k = Math.max(0, Math.min(1, (lt - 0.3) / Math.max(1, s.dur - 0.9)));
+  let acc = 0, idx = -1;
+  spans.forEach((x, i) => { const a = acc / total; acc += x.textContent.length + 1; if (k >= a) idx = i; });
+  spans.forEach((x, i) => { x.className = i < idx ? "read" : i === idx && k < 1 ? "now" : k >= 1 ? "read" : ""; });
+  $("tbar").style.width = `${Math.min(100, (lt / s.dur) * 100)}%`;
+}
+function select(i) { if (busy) return; cur = Math.max(0, Math.min(S.length - 1, i)); $("msg").textContent = ""; renderScene(); }
+
+/* ---------- snimanje ---------- */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function record() {
+  if (busy) return stopFn?.();
+  try { await audio(); } catch (e) { $("msg").textContent = `Nema pristupa mikrofonu: ${e.message}. Otvori stranicu preko http://localhost (vidi upute).`; return; }
+  await ac.resume();
+  busy = true; const s = S[cur];
+  $("rec").textContent = "■ Zaustavi"; $("stage").classList.add("recording");
+  v.pause(); v.currentTime = s.start; v.muted = !$("music").checked; v.volume = 0.35;
+  for (const n of [3, 2, 1]) { $("count").textContent = n; await sleep(700); if (!busy) break; }
+  $("count").textContent = "";
+  if (!busy) return finish(null);
+  const chunks = [];
+  recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "" });
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const done = new Promise((ok) => (recorder.onstop = ok));
+  recorder.start();
+  await v.play().catch(() => {});
+  const t0 = performance.now();
+  let stopped = false;
+  stopFn = () => { stopped = true; };
+  while (!stopped && (performance.now() - t0) / 1000 < s.dur) { follow((performance.now() - t0) / 1000); await sleep(30); }
+  follow(s.dur);
+  recorder.stop(); v.pause(); await done;
+  finish(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
+}
+async function finish(blob) {
+  busy = false; stopFn = null;
+  $("rec").textContent = "● Snimi scenu"; $("stage").classList.remove("recording"); v.muted = false; v.volume = 1;
+  if (blob && blob.size > 2000) {
+    const id = S[cur].id;
+    takes[id] = { blob };
+    await tx("readwrite", (st) => st.put(blob, id));
+    const buf = await bufferOf(id);
+    let peak = 0; const d = buf.getChannelData(0); for (let i = 0; i < d.length; i += 64) peak = Math.max(peak, Math.abs(d[i]));
+    $("msg").textContent = peak < 0.02 ? "Snimka je vrlo tiha - provjeri mikrofon (pokazivač razine gore desno)." : peak > 0.98 ? "Snimka je preglasna (izobličenje) - odmakni se malo od mikrofona." : "Spremljeno. Preslušaj (P) ili idi na sljedeću scenu (→).";
+  }
+  renderScene();
+}
+
+/* ---------- preslušavanje ---------- */
+let playing = [];
+function stopPlayback() { playing.forEach((x) => { try { x.stop(); } catch {} }); playing = []; v.pause(); }
+async function playScene() {
+  if (busy) return;
+  await audio().catch(() => {}); if (!ac) return;
+  await ac.resume(); stopPlayback();
+  const s = S[cur], buf = await bufferOf(s.id); if (!buf) return;
+  v.currentTime = s.start; v.muted = false; v.volume = 0.35;
+  await v.play().catch(() => {});
+  const src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination); src.start(); playing.push(src);
+  const t0 = performance.now();
+  (function tick() { const lt = (performance.now() - t0) / 1000; follow(lt); if (lt < s.dur && playing.includes(src)) requestAnimationFrame(tick); else { v.pause(); v.volume = 1; } })();
+}
+async function playAll() {
+  if (busy) return;
+  await audio().catch(() => {}); if (!ac) return;
+  await ac.resume(); stopPlayback();
+  const from = S[cur].start;
+  v.currentTime = from; v.volume = 0.35; v.muted = false;
+  await v.play().catch(() => {});
+  const now = ac.currentTime;
+  for (const s of S) {
+    if (s.start + s.dur <= from) continue;
+    const buf = await bufferOf(s.id); if (!buf) continue;
+    const src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination);
+    const at = s.start - from;
+    if (at >= 0) src.start(now + at); else src.start(now, -at);
+    playing.push(src);
+  }
+  v.onpause = () => { stopPlayback(); v.volume = 1; v.onpause = null; };
+}
+
+/* ---------- izvoz: jedan WAV poravnat s videom ---------- */
+async function exportWav() {
+  await audio().catch(() => {}); if (!ac) return;
+  const missing = S.filter((s) => !takes[s.id]).map((s) => s.title);
+  if (missing.length && !confirm(`Nisu snimljene: ${missing.join(", ")}.\nPreuzeti naraciju bez njih?`)) return;
+  const sr = 48000, len = Math.ceil(DATA.total * sr);
+  const off = new OfflineAudioContext(1, len, sr);
+  for (const s of S) {
+    const buf = await bufferOf(s.id); if (!buf) continue;
+    const src = off.createBufferSource(); src.buffer = buf;
+    const g = off.createGain();
+    // kratko pojačavanje/stišavanje na rubovima, bez klikova
+    g.gain.setValueAtTime(0, s.start); g.gain.linearRampToValueAtTime(1, s.start + 0.02);
+    g.gain.setValueAtTime(1, s.start + s.dur - 0.06); g.gain.linearRampToValueAtTime(0, s.start + s.dur);
+    src.connect(g).connect(off.destination); src.start(s.start); src.stop(s.start + s.dur);
+  }
+  const out = await off.startRendering(), d = out.getChannelData(0);
+  let peak = 0; for (const x of d) peak = Math.max(peak, Math.abs(x));
+  const gain = peak > 0 ? 0.89 / peak : 1;
+  const wav = new DataView(new ArrayBuffer(44 + d.length * 2));
+  const w = (o, s) => [...s].forEach((c, i) => wav.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); wav.setUint32(4, 36 + d.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true); wav.setUint32(24, sr, true);
+  wav.setUint32(28, sr * 2, true); wav.setUint16(32, 2, true); wav.setUint16(34, 16, true); w(36, "data"); wav.setUint32(40, d.length * 2, true);
+  for (let i = 0; i < d.length; i++) wav.setInt16(44 + i * 2, Math.max(-1, Math.min(1, d[i] * gain)) * 32767, true);
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([wav], { type: "audio/wav" })), download: "naracija.wav" });
+  a.click();
+  $("msg").textContent = "naracija.wav je preuzet. Ugradi ga u video: video/predaja/dodaj_naraciju.sh ~/Downloads/naracija.wav";
+}
+
+/* ---------- događaji ---------- */
+$("list").onclick = (e) => { const b = e.target.closest("[data-i]"); if (b) select(+b.dataset.i); };
+$("rec").onclick = record;
+$("play").onclick = playScene;
+$("del").onclick = async () => { const id = S[cur].id; delete takes[id]; await tx("readwrite", (st) => st.delete(id)); renderScene(); };
+$("next").onclick = () => select(cur + 1);
+$("playall").onclick = playAll;
+$("export").onclick = exportWav;
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); record(); }
+  else if (e.key === "p" || e.key === "P") playScene();
+  else if (e.key === "ArrowRight") select(cur + 1);
+  else if (e.key === "ArrowLeft") select(cur - 1);
+  else if (e.key === "Delete" || e.key === "Backspace") $("del").click();
+  else if (e.key === "Escape") stopPlayback();
+});
+loadTakes().then(() => { const first = S.findIndex((s) => !takes[s.id]); cur = first >= 0 ? first : 0; renderScene(); });
+</script>
+</body>
+</html>
